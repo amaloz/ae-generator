@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+
+# Z3PATH=/home/amaloz/Desktop/z3/build
+# export OCAMLPATH=$Z3PATH/api/ml
+
+# FLAGS="-I src -use-ocamlfind -lflags -cclib,-lz3 -cflags -annot"
+FLAGS="-I src -use-ocamlfind -cflags -annot"
+
+ocamlbuild $FLAGS mosynth.native
+ocamlbuild $FLAGS mocheck.native
+ocamlbuild $FLAGS moperf.native
