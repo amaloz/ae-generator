@@ -4,8 +4,8 @@
 # export OCAMLPATH=$Z3PATH/api/ml
 
 # FLAGS="-I src -use-ocamlfind -lflags -cclib,-lz3 -cflags -annot"
-FLAGS="-I src -use-ocamlfind -cflags -annot"
+FLAGS="-I src -use-ocamlfind -cflags -annot,-g"
 
-ocamlbuild $FLAGS mosynth.native
-ocamlbuild $FLAGS mocheck.native
-ocamlbuild $FLAGS moperf.native
+# ocamlbuild $FLAGS mosynth.native
+ocamlbuild $FLAGS mocheck.byte
+# ocamlbuild $FLAGS moperf.native
