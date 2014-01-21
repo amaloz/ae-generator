@@ -112,13 +112,11 @@ let prf t =
 (assert (and (= "^x.typ^" R) (= "^x.flag_prf^" true)))");
   genrand t
 
-let lt_bool a b =
+let start t =
+  let lt_bool a b =
   "(if (= "^a^" true)
        (or (= "^b^" false) (= "^b^" true))
-       (= "^b^" false))"
-
-          
-let start t =
+       (= "^b^" false))" in
   let x = Stack.pop_exn t.items in
   let v = create_vars t "start" in
   Queue.enqueue t.code ("\
@@ -165,11 +163,11 @@ let op t = function
   | Start -> start t
   | Xor -> xor t
 
-let check_sat_cmd t = Queue.enqueue t.code "(check-sat)"
-let get_model_cmd t = Queue.enqueue t.code "(get-model)"
+let finalize t =
+  Queue.enqueue t.code "(check-sat) (get-model)"
 
 let write_to_file t f =
-  Out_channel.write_lines f (Queue.to_list t.code);
+  Out_channel.write_lines f (Queue.to_list t.code)
 
 (* let display_model g s = *)
 (*   (\* XXX: complete hack! *\) *)
@@ -203,70 +201,17 @@ let write_to_file t f =
 (*   let l = List.sort ~cmp:cmp l in *)
 (*   MoGraph.display_model_with_feh g l *)
 
-(* let validate graph = *)
-(*   let save = Some "test.smt2" in *)
-(*   let model = None in *)
-(*   let t = create () in *)
-(*   let f v = *)
-(*     match G.V.label v with *)
-(*     | Start -> start t *)
-(*     | Genrand -> genrand t *)
-(*     | M -> msg t *)
-(*     | Dup -> dup t *)
-(*     | Prf -> prf t *)
-(*     | Xor -> xor t *)
-(*     | _ -> raise (Failure "woah panic!") in *)
-(*   G.iter_vertex f graph; *)
-(*   check_sat_cmd t; *)
-(*   get_model_cmd t; *)
-(*   let tmp = Filename.temp_file "z3" ".smt2" in *)
-(*   Out_channel.write_lines tmp (Queue.to_list t.code); *)
-(*   begin *)
-(*     match save with *)
-(*       | Some fn -> Out_channel.write_lines fn (Queue.to_list t.code) *)
-(*       | None -> () *)
-(*   end; *)
-(*   let s = MoUtils.run_proc ("z3 " ^ tmp) in *)
-(*   let r = begin *)
-(*     match List.hd_exn (String.split s ~on:'\n') with *)
-(*       | "sat" -> begin *)
-(*         (match model with *)
-(*           | None -> () *)
-(*           | Some g -> display_model g s); *)
-(*         true *)
-(*       end *)
-(*       | "unsat" -> false *)
-(*       | _ -> raise (Failure ("Fatal: unknown Z3 error: " ^ s)) *)
-(*   end in *)
-(*   Sys.remove tmp; *)
-(*   r *)
-       
+let run fname =
+  let s = MoUtils.run_proc ("z3 " ^ fname) in
+  match List.hd_exn (String.split s ~on:'\n') with
+  | "sat" -> true
+     (* begin *)
+     (*   (match model with *)
+     (*     | None -> () *)
+     (*     | Some g -> display_model g s); *)
+     (*   true *)
+     (* end *)
+  | "unsat" -> false
+  | _ -> raise (Failure ("Fatal: unknown Z3 error: " ^ s))
 
-(* let validate ?(save=None) ?(model=None) init block = *)
-(*   let t = create () in *)
-(*   let iter t l = List.iter l ~f:(op t) in *)
-(*   iter t init; *)
-(*   iter t block; *)
-(*   check_sat_cmd t; *)
-(*   get_model_cmd t; *)
-(*   let tmp = Filename.temp_file "z3" ".smt2" in *)
-(*   Out_channel.write_lines tmp (Queue.to_list t.code); *)
-(*   begin *)
-(*     match save with *)
-(*       | Some fn -> Out_channel.write_lines fn (Queue.to_list t.code) *)
-(*       | None -> () *)
-(*   end; *)
-(*   let s = MoUtils.run_proc ("z3 " ^ tmp) in *)
-(*   let r = begin *)
-(*     match List.hd_exn (String.split s ~on:'\n') with *)
-(*       | "sat" -> begin *)
-(*         (match model with *)
-(*           | None -> () *)
-(*           | Some g -> display_model g s); *)
-(*         true *)
-(*       end *)
-(*       | "unsat" -> false *)
-(*       | _ -> raise (Failure ("Fatal: unknown Z3 error: " ^ s)) *)
-(*   end in *)
-(*   Sys.remove tmp; *)
-(*   r *)
+

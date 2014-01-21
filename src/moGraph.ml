@@ -2,33 +2,17 @@ open Core.Std
 open MoOps
 module MoInst = MoInstructions
 
-type typename = Random | Bottom
-
-let string_of_typename t =
-  match t with
-  | Random -> "Random"
-  | Bottom -> "Bottom"
-
-type edgelabel =
-    {
-      families : Int.Set.t;
-      typ : typename;
-      flag_out : bool;
-      flag_prf : bool;
-    }
-
-let new_edgelabel set =
-  { families = set; typ = Bottom; flag_out = false; flag_prf = false }
-             
 module E = struct
-  type t = edgelabel
+  type t = Int.Set.t
   let compare x y = 0
-  let default = new_edgelabel Int.Set.empty
+  let default = Int.Set.empty
 end
 module V = struct type t = MoOps.instruction end
 module G = Graph.Imperative.Digraph.AbstractLabeled(V)(E)
 
-let string_of_e e = "TODO"
+let string_of_e e =
+  let l = G.E.label e |> Int.Set.to_list in
+  List.to_string Int.to_string l
 
 type t = G.t
 
@@ -42,9 +26,7 @@ let create init block =
        let v = G.V.create i in
        G.add_vertex g v;
        for j = 1 to MoInst.n_in inst do
-         let e = G.E.create (Stack.pop_exn s)
-                            (new_edgelabel Int.Set.empty)
-                            v in
+         let e = G.E.create (Stack.pop_exn s) Int.Set.empty v in
          G.add_edge_e g e
        done;
        for j = 1 to MoInst.n_out inst do
@@ -65,18 +47,12 @@ let children g e = G.E.dst e |> G.succ_e g
 let child g e = children g e |> List.hd_exn
 
 let log_edge e =
-  let label = G.E.label e in
-  let l = label.families |> Int.Set.to_list in
-  let s = List.to_string Int.to_string l in
-  Log.debugf "    Families = %s" s;
-  Log.debugf "    Type = %s" (string_of_typename label.typ);
-  Log.debugf "    Flags.OUT = %s" (Bool.to_string label.flag_out);
-  Log.debugf "    Flags.PRF = %s" (Bool.to_string label.flag_prf)
+  Log.debugf "    Families = %s" (string_of_e e)
 
 let log_graph g = G.iter_edges_e log_edge g
 
-let add_edge g e edgelabel =
-  let e = G.E.create (G.E.src e) edgelabel (G.E.dst e) in
+let add_edge g e set =
+  let e = G.E.create (G.E.src e) set (G.E.dst e) in
   log_edge e;
   G.add_edge_e g e
     
@@ -91,116 +67,49 @@ let assign_families g =
               ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
     match label with
     | Dup
-    | Nextiv_init ->
-       let e' = parent g' e in
-       let edgelabel = new_edgelabel (G.E.label e').families in
-       add_edge g' e edgelabel
+    | Nextiv_init -> add_edge g' e (G.E.label e)
     | Genrand
     | M
     | Prf
     | Start ->
-       let edgelabel = new_edgelabel (Int.Set.singleton !fam_cnt) in
+       let set = Int.Set.singleton !fam_cnt in
        fam_cnt := !fam_cnt + 1;
-       add_edge g' e edgelabel
+       add_edge g' e set
     | Xor ->
        let elist = parents g' e in
        if List.length elist <> 2 then
          raise (Failure "more than two incoming edges to XOR ?!");
        let l = List.hd_exn elist in
        let r = List.last_exn elist in
-       let fam = Int.Set.union (G.E.label l).families (G.E.label r).families in
-       let edgelabel = new_edgelabel fam in
-       add_edge g' e edgelabel
-    | _ -> raise (Failure "Unknown label encountered")
+       let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
+       if Int.Set.length inter <> 0 then
+         raise (Failure "related edges input into XOR");
+       let fam = Int.Set.union (G.E.label l) (G.E.label r) in
+       add_edge g' e fam
+    | Nextiv_block
+    | Out ->
+       raise (Failure "should not reach here!")
   in
   G.iter_edges_e f g;
   g'
 
-let validate g =
+let validate ?(save=None) ?(model=None) g =
   Log.infof "Validating graph...";
-  let save = Some "test.smt2" in
-  let model = None in
   let smt = MoSmt.create () in
   let f v =
     Log.infof "  Hit %s" ((MoOps.Instruction (G.V.label v)) |> MoInst.string_of_t);
     MoSmt.op smt (G.V.label v) in
   G.iter_vertex f g;
-  MoSmt.check_sat_cmd smt;
-  MoSmt.get_model_cmd smt;
-  let tmp = Filename.temp_file "z3" ".smt2" in
-  MoSmt.write_to_file smt tmp;
-  begin
-    match save with
-    | Some fn -> MoSmt.write_to_file smt fn
-    | None -> ()
-  end;
-  let s = MoUtils.run_proc ("z3 " ^ tmp) in
-  let r = begin
-    match List.hd_exn (String.split s ~on:'\n') with
-      | "sat" -> begin
-        (* (match model with *)
-        (*   | None -> () *)
-        (*   | Some g -> display_model g s); *)
-        true
-      end
-      | "unsat" -> false
-      | _ -> raise (Failure ("Fatal: unknown Z3 error: " ^ s))
-  end in
-  Sys.remove tmp;
-  r
+  MoSmt.finalize smt;
+  let fname = match save with
+    | Some fn -> fn
+    | None -> Filename.temp_file "z3" ".smt2" in
+  MoSmt.write_to_file smt fname;
+  let result = MoSmt.run fname in
+  if Option.is_none save then
+    Sys.remove fname;
+  result
 
-
-(* let assign_types_and_flags g = *)
-(*   Log.infof "Assigning types and flags to graph..."; *)
-(*   let g' = G.create () in *)
-
-(*   let module Analysis = struct *)
-(*     type vertex = G.V.t *)
-(*     type edge = G.E.t *)
-(*     type g = G.t *)
-(*     type data = edgelabel list *)
-(*     let direction = Graph.Fixpoint.Forward *)
-(*     let equal data data' = *)
-(*       if List.length data <> List.length data' then *)
-(*         false *)
-(*       else *)
-(*         true *)
-(*     let join v v' = raise (Failure "join not done yet") *)
-(*     let analyze e data = *)
-(*       Log.infof "  Hit edge %s -> %s" *)
-(*                 ((MoOps.Instruction (G.E.src e |> G.V.label)) |> MoInst.string_of_t) *)
-(*                 ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t); *)
-(*       match G.E.src e |> G.V.label with *)
-(*       | Genrand -> *)
-(*          let label = G.E.label e in *)
-(*          [ { label with typ = Random; flag_out = true; flag_prf = true } ] *)
-(*       | *)
-(*   end in *)
-(*   let get_edgelabels v = *)
-(*     Log.infof "  Hit vertex %s" (MoOps.Instruction (G.V.label v) |> MoInst.string_of_t); *)
-(*     let elist = G.succ_e g v in *)
-(*     let f e = G.E.label e in *)
-(*     List.map elist f in *)
-(*   let module ValidMode = Graph.Fixpoint.Make(G)(Analysis) in *)
-(*   let result = ValidMode.analyze get_edgelabels g in *)
-(*   log_graph g; *)
-(*   g' *)
-  
-  (* let f e = *)
-  (*   let label = G.E.src e |> G.V.label in *)
-  (*   Log.infof "  Hit edge %s -> %s" *)
-  (*             ((MoOps.Instruction label) |> MoInst.string_of_t) *)
-  (*             ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t); *)
-  (*   match label with *)
-  (*   | Genrand -> *)
-  (*      let edgelabel = { G.E.label e with typ = Random; *)
-  (*                                         flag_out = true; *)
-  (*                                         flag_prf = true } in *)
-  (*      add_edge g' e edgelabel *)
-  (*   | _ -> raise (Failure "Unknown label encountered") *)
-  (* in *)
-  (* G.iter_edges_e f g; *)
-  (* g' *)
 
 (* let is_decryptable t = *)
 (*   let rec loop g cur prev dir = *)

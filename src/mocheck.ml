@@ -58,14 +58,13 @@ let _ =
   let validate init block =
     let g = MoGraph.create init block in
     let g = MoGraph.assign_families g in
-    (* let model = match !arg_display_model with *)
-    (*   | true -> Some g *)
-    (*   | false -> None in *)
-    (* let save = match !arg_save_smt with *)
-    (*   | "" -> None *)
-    (*   | s -> Some s in *)
-    (* let r = MoSmt.validate init block ~save:save ~model:model in *)
-    if MoGraph.validate g then
+    let model = match !arg_display_model with
+      | true -> Some g
+      | false -> None in
+    let save = match !arg_save_smt with
+      | "" -> None
+      | s -> Some s in
+    if MoGraph.validate ~save:save ~model:model g then
       print_endline "success!"
     else
       raise (Failure "Unable to validate: SMT check failed!")
