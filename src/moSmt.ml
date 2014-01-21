@@ -15,15 +15,18 @@ type t = {
   mutable start_vars : labelvars;
 }
 
-let datatypes = "(declare-datatypes () ((T R B)))"
-
 let create () =
   let t = { ctr = 1;
             code = Queue.create ();
             items = Stack.create ();
             start_vars = { typ = ""; flag_prf = ""; flag_out = "" };
           } in
-  Queue.enqueue t.code datatypes;
+  let init = "\
+(declare-const R Int)
+(declare-const B Int)
+(assert (= R 2))
+(assert (= B 0))" in
+  Queue.enqueue t.code init;
   t
 
 let create_vars t fn =
@@ -40,8 +43,8 @@ let dup t =
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; DUP
-(declare-const "^l.typ^" T)
-(declare-const "^r.typ^" T)
+(declare-const "^l.typ^" Int)
+(declare-const "^r.typ^" Int)
 (declare-const "^l.flag_prf^" Bool)
 (declare-const "^l.flag_out^" Bool)
 (declare-const "^r.flag_prf^" Bool)
@@ -58,7 +61,7 @@ let genrand t =
   let v = create_vars t "genrand" in
   Queue.enqueue t.code ("\
 ;; GENRAND
-(declare-const "^v.typ^" T)
+(declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
 (assert (and (= "^v.typ^" R) (= "^v.flag_prf^" "^v.flag_out^" true)))");
@@ -68,7 +71,7 @@ let msg t =
   let v = create_vars t "m" in
   Queue.enqueue t.code ("\
 ;; M
-(declare-const "^v.typ^" T)
+(declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
 (assert (and (= "^v.typ^" B) (= "^v.flag_prf^" "^v.flag_out^" false)))");
@@ -79,7 +82,7 @@ let nextiv t phase =
   let v = create_vars t "nextiv" in
   Queue.enqueue t.code ("\
 ;; NEXTIV
-(declare-const "^v.typ^" T)
+(declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
 (assert (and (= "^v.typ^" "^x.typ^")
@@ -95,20 +98,6 @@ let nextiv t phase =
 (assert (= "^v.flag_prf^" "^t.start_vars.flag_prf^"))");
   end;
   Stack.push t.items v
-(*   match phase with *)
-(*     | Init -> *)
-(*       let v = create_vars t "nextiv" in *)
-(*       Queue.enqueue t.code ("\ *)
-(* ;; NEXTIV *)
-(* (declare-const "^v.typ^" T) *)
-(* (assert (= "^v.typ^" "^x.typ^"))"); *)
-(*       Stack.push t.nextivs v; *)
-(*       Stack.push t.items v *)
-(*     | Block -> *)
-(*       let v = Stack.pop_exn t.nextivs in *)
-(*       Queue.enqueue t.code ("\ *)
-(* ;; NEXTIV *)
-(* (assert (= "^x.typ^" "^v.typ^"))") *)
 
 let out t =
   let x = Stack.pop_exn t.items in
@@ -120,21 +109,26 @@ let prf t =
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; PRF
-(assert (and (= "^x.typ^" R)
-             (= "^x.flag_prf^" true)))");
+(assert (and (= "^x.typ^" R) (= "^x.flag_prf^" true)))");
   genrand t
 
+let lt_bool a b =
+  "(if (= "^a^" true)
+       (or (= "^b^" false) (= "^b^" true))
+       (= "^b^" false))"
+
+          
 let start t =
   let x = Stack.pop_exn t.items in
   let v = create_vars t "start" in
   Queue.enqueue t.code ("\
 ;; START
-(declare-const "^v.typ^" T)
+(declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
-(assert (and (= "^v.typ^" "^x.typ^")
-             (= "^v.flag_prf^" "^x.flag_prf^")
-             (= "^v.flag_out^" "^x.flag_out^")))");
+(assert (and (<= "^v.typ^" "^x.typ^")
+             "^(lt_bool v.flag_prf x.flag_prf)^"
+             "^(lt_bool v.flag_out x.flag_out)^"))");
   t.start_vars <- v;
   Stack.push t.items v
 
@@ -144,7 +138,7 @@ let xor t =
   let y = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; XOR
-(declare-const "^v.typ^" T)
+(declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
 (assert (or (= "^x.typ^" R) (= "^y.typ^" R)))
