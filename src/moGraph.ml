@@ -4,7 +4,7 @@ module MoInst = MoInstructions
 
 module E = struct
   type t = Int.Set.t
-  let compare x y = 0
+  let compare = Int.Set.compare
   let default = Int.Set.empty
 end
 module V = struct type t = MoOps.instruction end
@@ -17,20 +17,20 @@ let string_of_e e =
 type t = G.t
 
 let create init block =
-  Log.infof "Creating graph...";
   let s = Stack.create () in
   let g = G.create () in
-  let rec f inst =
+  let f inst =
     match inst with
     | Instruction i ->
-       let v = G.V.create i in
-       G.add_vertex g v;
+       let dst = G.V.create i in
+       G.add_vertex g dst;
        for j = 1 to MoInst.n_in inst do
-         let e = G.E.create (Stack.pop_exn s) Int.Set.empty v in
+         let src = Stack.pop_exn s in
+         let e = G.E.create src Int.Set.empty dst in
          G.add_edge_e g e
        done;
        for j = 1 to MoInst.n_out inst do
-         Stack.push s v
+         Stack.push s dst
        done
     | StackInstruction i ->
        MoInst.mod_stack i s
@@ -39,59 +39,60 @@ let create init block =
   List.iter block f;
   g
 
-let vertex_label v = G.V.label v
+let clear t = G.clear t
 
-let parents g e = G.E.src e |> G.pred_e g
-let parent g e = parents g e |> List.hd_exn
-let children g e = G.E.dst e |> G.succ_e g
-let child g e = children g e |> List.hd_exn
-
-let log_edge e =
-  Log.debugf "    Families = %s" (string_of_e e)
-
-let log_graph g = G.iter_edges_e log_edge g
-
-let add_edge g e set =
-  let e = G.E.create (G.E.src e) set (G.E.dst e) in
-  log_edge e;
-  G.add_edge_e g e
-    
 let assign_families g =
   Log.infof "Assigning families to graph...";
+  let replace_edge e set =
+    G.remove_edge_e g e;
+    let e = G.E.create (G.E.src e) set (G.E.dst e) in
+    Log.debugf "    Families = %s" (string_of_e e);
+    G.add_edge_e g e
+  in
+  let parents e = G.E.src e |> G.pred_e g in
+  let parent e = parents e |> List.hd_exn in
+  let are_parents_processed e =
+    let f e = if Int.Set.length (G.E.label e) = 0 then raise Exit in
+    try List.iter (parents e) f; true with Exit -> false
+  in
   let fam_cnt = ref 0 in
-  let g' = G.create () in
   let f e =
     let label = G.E.src e |> G.V.label in
     Log.infof "  Hit edge %s -> %s"
               ((MoOps.Instruction label) |> MoInst.string_of_t)
               ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
-    match label with
-    | Dup
-    | Nextiv_init -> add_edge g' e (G.E.label e)
-    | Genrand
-    | M
-    | Prf
-    | Start ->
-       let set = Int.Set.singleton !fam_cnt in
-       fam_cnt := !fam_cnt + 1;
-       add_edge g' e set
-    | Xor ->
-       let elist = parents g' e in
-       if List.length elist <> 2 then
-         raise (Failure "more than two incoming edges to XOR ?!");
-       let l = List.hd_exn elist in
-       let r = List.last_exn elist in
-       let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
-       if Int.Set.length inter <> 0 then
-         raise (Failure "related edges input into XOR");
-       let fam = Int.Set.union (G.E.label l) (G.E.label r) in
-       add_edge g' e fam
-    | Nextiv_block
-    | Out ->
-       raise (Failure "should not reach here!")
+    if are_parents_processed e then
+      begin
+        match label with
+        | Dup
+        | Nextiv_init ->
+           let e' = parent e in
+           replace_edge e (G.E.label e')
+        | Genrand
+        | M
+        | Prf
+        | Start ->
+           let set = Int.Set.singleton !fam_cnt in
+           fam_cnt := !fam_cnt + 1;
+           replace_edge e set
+        | Xor ->
+           let elist = parents e in
+           let l = List.hd_exn elist in
+           let r = List.last_exn elist in
+           let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
+           if Int.Set.length inter <> 0 then
+             failwith "related edges input into XOR";
+           let fam = Int.Set.union (G.E.label l) (G.E.label r) in
+           replace_edge e fam
+        | Nextiv_block
+        | Out ->
+           failwith "should not reach here!"
+      end
+    else
+      failwith "WHY!!!!!!!!!!!!!!!!"
   in
   G.iter_edges_e f g;
-  g'
+  g
 
 let validate ?(save=None) ?(model=None) g =
   Log.infof "Validating graph...";
@@ -110,149 +111,129 @@ let validate ?(save=None) ?(model=None) g =
     Sys.remove fname;
   result
 
+type dir = Forward | Backward
 
-(* let is_decryptable t = *)
-(*   let rec loop g cur prev dir = *)
+let is_decryptable t =
+  let rec loop g cur prev dir =
 
-(*     (\* Printf.printf "cur = %s | prev = %s | dir = %s\n%!" *\) *)
-(*     (\*   (MoInst.string_of_t (Instruction (G.V.label cur))) *\) *)
-(*     (\*   (MoInst.string_of_t (Instruction (G.V.label prev))) *\) *)
-(*     (\*   (string_of_dir dir); *\) *)
+    (* Printf.printf "cur = %s | prev = %s | dir = %s\n%!" *)
+    (*   (MoInst.string_of_t (Instruction (G.V.label cur))) *)
+    (*   (MoInst.string_of_t (Instruction (G.V.label prev))) *)
+    (*   (string_of_dir dir); *)
 
-(*     let next cur prev dir = *)
-(*       let l = match dir with *)
-(*         | Forward -> G.succ g cur *)
-(*         | Backward -> G.pred g cur in *)
-(*       List.filter l ~f:(fun v -> v <> prev) in *)
+    let next cur prev dir =
+      let l = match dir with
+        | Forward -> G.succ g cur
+        | Backward -> G.pred g cur in
+      List.filter l ~f:(fun v -> v <> prev) in
 
-(*     let continue cur dir = *)
-(*       let l = next cur prev dir in *)
-(*       match List.hd l with *)
-(*         | Some v -> loop g v cur dir *)
-(*         | None -> false in *)
+    let continue cur dir =
+      let l = next cur prev dir in
+      match List.hd l with
+        | Some v -> loop g v cur dir
+        | None -> false in
 
-(*     (\* stop if we're in a cycle *\) *)
-(*     if G.Mark.get cur <> 0 then false *)
-(*     else begin *)
-(*       G.Mark.set cur 1; *)
-(*       match G.V.label cur with *)
-(*         | Double -> failwith "DBL not done yet" *)
-(*         | Dup -> begin *)
-(*           match dir with *)
-(*             | Forward -> *)
-(*               let l = next cur prev dir in *)
-(*               let f v = loop g v cur dir in *)
-(*               List.exists l f *)
-(*             | Backward -> begin *)
-(*               let n = List.hd (next cur prev Forward) in *)
-(*               let p = List.hd (next cur prev Backward) in *)
-(*               match n, p with *)
-(*                 | Some n, Some p -> *)
-(*                   loop g n cur Forward || loop g p cur Backward *)
-(*                 | Some _, None -> failwith "Fatal: DUP hit with no parent?" *)
-(*                 | None, Some _ -> *)
-(*                   (\* this case can happen if DUP connects directly to XOR, in *)
-(*                      which case we have *one* child, but as that child is the *)
-(*                      node we are coming from, the 'next' function returns *)
-(*                      nothing *\) *)
-(*                   false *)
-(*                 | None, None -> failwith "Fatal: DUP hit with no edges?" *)
-(*             end *)
-(*         end *)
-(*         | Genrand -> false *)
-(*         | Genzero -> true *)
-(*         | Inc -> continue cur dir *)
-(*         | M -> continue cur dir *)
-(*         | Nextiv_init -> continue cur dir *)
-(*         | Nextiv_block -> false *)
-(*         | Out -> true *)
-(*         | Prf -> begin *)
-(*           match dir with *)
-(*             | Forward -> false *)
-(*             | Backward -> continue cur dir *)
-(*         end *)
-(*         | Prp -> continue cur dir *)
-(*         | TPrp -> begin *)
-(*           let is_e_tweak p = *)
-(*             let e = G.find_edge g p cur in *)
-(*             G.E.label e = Int 1 in *)
-(*           match dir with *)
-(*             | Forward -> begin *)
-(*               let n = List.hd_exn (next cur prev Forward) in *)
-(*               let l = next cur prev Backward in *)
-(*               match List.find l ~f:(is_e_tweak) with *)
-(*                 | Some p -> *)
-(*                   (\* try and find the tweak and the next item *\) *)
-(*                   loop g p cur Backward && loop g n cur Forward *)
-(*                 | None -> *)
-(*                   (\* we came from the tweak, thus there's no way we can learn *)
-(*                      the TPRP input *\) *)
-(*                   false *)
-(*             end *)
-(*             | Backward -> begin *)
-(*               (\* if we can find the tweak, we can decrypt *\) *)
-(*               let l = next cur prev Backward in *)
-(*               match List.find l ~f:(is_e_tweak) with *)
-(*                 | Some p -> loop g p cur Backward *)
-(*                 | None -> failwith "Fatal: no tweak in TPRP input?" *)
-(*             end *)
-(*         end *)
-(*         | Xor -> begin *)
-(*           match dir with *)
-(*             | Forward -> begin *)
-(*               let v = List.hd (next cur prev Forward) in *)
-(*               let v' = List.hd (next cur prev Backward) in *)
-(*               match v, v' with *)
-(*                 | Some v, Some v' -> *)
-(*                   (loop g v cur Forward) && (loop g v' cur Backward) *)
-(*                 | Some _, None -> false *)
-(*                 | None, Some _ -> failwith "Fatal: XOR hit with no child?" *)
-(*                 | None, None -> failwith "Fatal: XOR hit with no neighbors?" *)
-(*             end *)
-(*             | Backward -> *)
-(*               let l = next cur prev Backward in *)
-(*               let f v = loop g v cur Backward in *)
-(*               List.length l = 2 && List.for_all l ~f:f *)
-(*         end *)
-(*     end *)
-(*   in *)
-(*   (\* reset graph marks before traversing *\) *)
-(*   G.Mark.clear t; *)
-(*   let find_ms g = *)
-(*     let f x y = if (G.V.label x) = M then x :: y else y in *)
-(*     G.fold_vertex f g [] in *)
-(*   List.for_all (find_ms t) (fun v -> loop t v v Forward) *)
+    (* stop if we're in a cycle *)
+    if G.Mark.get cur <> 0 then false
+    else begin
+      G.Mark.set cur 1;
+      match G.V.label cur with
+        | Dup -> begin
+          match dir with
+            | Forward ->
+              let l = next cur prev dir in
+              let f v = loop g v cur dir in
+              List.exists l f
+            | Backward -> begin
+              let n = List.hd (next cur prev Forward) in
+              let p = List.hd (next cur prev Backward) in
+              match n, p with
+                | Some n, Some p ->
+                  loop g n cur Forward || loop g p cur Backward
+                | Some _, None -> failwith "Fatal: DUP hit with no parent?"
+                | None, Some _ ->
+                  (* this case can happen if DUP connects directly to XOR, in
+                     which case we have *one* child, but as that child is the
+                     node we are coming from, the 'next' function returns
+                     nothing *)
+                  false
+                | None, None -> failwith "Fatal: DUP hit with no edges?"
+            end
+        end
+        | Genrand -> false
+        (* | Inc -> continue cur dir *)
+        | M -> continue cur dir
+        | Nextiv_init
+        | Start -> continue cur dir
+        | Nextiv_block -> false
+        | Out -> true
+        | Prf -> begin
+          match dir with
+            | Forward -> false
+            | Backward -> continue cur dir
+        end
+        (* | Prp -> continue cur dir *)
+        | Xor -> begin
+          match dir with
+            | Forward -> begin
+              let v = List.hd (next cur prev Forward) in
+              let v' = List.hd (next cur prev Backward) in
+              match v, v' with
+                | Some v, Some v' ->
+                  (loop g v cur Forward) && (loop g v' cur Backward)
+                | Some _, None -> false
+                | None, Some _ -> failwith "Fatal: XOR hit with no child?"
+                | None, None -> failwith "Fatal: XOR hit with no neighbors?"
+            end
+            | Backward ->
+              let l = next cur prev Backward in
+              let f v = loop g v cur Backward in
+              List.length l = 2 && List.for_all l ~f:f
+        end
+    end
+  in
+  (* reset graph marks before traversing *)
+  G.Mark.clear t;
+  let find_ms g =
+    let f x y = if (G.V.label x) = M then x :: y else y in
+    G.fold_vertex f g [] in
+  let r = List.for_all (find_ms t) (fun v -> loop t v v Forward) in
+  if not r then
+    Log.infof "Is not decryptable!";
+  r
 
-(* exception Vertex of G.V.t *)
+exception Vertex of G.V.t
 
-(* let is_connected t = *)
-(*   let module H = Caml.Hashtbl.Make(G.V) in *)
-(*   let h = H.create 65537 in *)
-(*   let rec visit s = *)
-(*     match Stack.pop s with *)
-(*       | None -> () *)
-(*       | Some v -> *)
-(*         if not (H.mem h v) then begin *)
-(*           H.add h v (); *)
-(*           G.iter_succ (Stack.push s) t v; *)
-(*           G.iter_pred (Stack.push s) t v *)
-(*         end; *)
-(*         visit s *)
-(*   in *)
-(*   let s = Stack.create () in *)
-(*   let v = *)
-(*     try *)
-(*       G.iter_vertex (fun v -> raise (Vertex v)) t; *)
-(*       raise Not_found *)
-(*     with Vertex v -> v *)
-(*   in *)
-(*   Stack.push s v; *)
-(*   visit s; *)
-(*   try *)
-(*     let f v = if not (H.mem h v) then raise Exit in *)
-(*     G.iter_vertex f t; *)
-(*     true *)
-(*   with Exit -> false *)
+let is_connected t =
+  let module H = Caml.Hashtbl.Make(G.V) in
+  let h = H.create 65537 in
+  let rec visit s =
+    match Stack.pop s with
+      | None -> ()
+      | Some v ->
+        if not (H.mem h v) then begin
+          H.add h v ();
+          G.iter_succ (Stack.push s) t v;
+          G.iter_pred (Stack.push s) t v
+        end;
+        visit s
+  in
+  let s = Stack.create () in
+  let v =
+    try
+      G.iter_vertex (fun v -> raise (Vertex v)) t;
+      raise Not_found
+    with Vertex v -> v
+  in
+  Stack.push s v;
+  visit s;
+  try
+    let f v = if not (H.mem h v) then raise Exit in
+    G.iter_vertex f t;
+    true
+  with Exit ->
+    Log.infof "Is not connected!";
+    false
 
 (* let is_pruneable t = *)
 (*   let f v = *)
@@ -281,15 +262,28 @@ let count_inst t i =
   let f v cnt = if G.V.label v = i then cnt + 1 else cnt in
   G.fold_vertex f t 0
 
-let check init block =
-  raise (Failure "not done yet")
-  (* let t = create init block in *)
-  (* if not (is_pruneable t) *)
-  (*   && is_nextiv_value_changed t *)
-  (*   && is_connected t *)
-  (*   && is_decryptable t *)
-  (* then true *)
-  (* else false *)
+let is_start_location_valid t =
+  let f e =
+    if G.E.src e |> G.V.label = Nextiv_init
+       && G.E.dst e |> G.V.label <> Start then
+      begin
+        Log.infof "start location invalid!";
+        raise Exit
+      end
+  in
+  try G.iter_edges_e f t; true with _ -> false
+
+let check ?(save=None) ?(model=None) t =
+  if is_start_location_valid t
+     && is_decryptable t
+  then
+    let t = assign_families t in
+    validate ~save:save ~model:model t
+  else
+    false
+  (* not (is_pruneable g) *)
+  (* && is_connected g *)
+  (* && is_decryptable g *)
 
 let display_with_feh t =
   let module Display = struct

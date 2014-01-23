@@ -44,9 +44,9 @@ let dup t =
   Queue.enqueue t.code ("\
 ;; DUP
 (declare-const "^l.typ^" Int)
-(declare-const "^r.typ^" Int)
 (declare-const "^l.flag_prf^" Bool)
 (declare-const "^l.flag_out^" Bool)
+(declare-const "^r.typ^" Int)
 (declare-const "^r.flag_prf^" Bool)
 (declare-const "^r.flag_out^" Bool)
 (assert (= "^x.typ^" "^l.typ^" "^r.typ^"))
@@ -90,7 +90,8 @@ let nextiv t phase =
              (= "^v.flag_out^" "^x.flag_out^")))");
   begin
     match phase with
-    | Init -> ()
+    | Init ->
+       t.start_vars <- v;
     | Block ->
        Queue.enqueue t.code ("\
 (assert (= "^v.typ^" "^t.start_vars.typ^"))
@@ -127,7 +128,7 @@ let start t =
 (assert (and (<= "^v.typ^" "^x.typ^")
              "^(lt_bool v.flag_prf x.flag_prf)^"
              "^(lt_bool v.flag_out x.flag_out)^"))");
-  t.start_vars <- v;
+  (* t.start_vars <- v; *)
   Stack.push t.items v
 
 let xor t =

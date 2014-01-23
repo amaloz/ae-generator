@@ -57,27 +57,24 @@ let _ =
 
   let validate init block =
     let g = MoGraph.create init block in
-    let g = MoGraph.assign_families g in
     let model = match !arg_display_model with
       | true -> Some g
       | false -> None in
     let save = match !arg_save_smt with
       | "" -> None
       | s -> Some s in
-    if MoGraph.validate ~save:save ~model:model g then
+    if MoGraph.check ~save:save ~model:model g then
       print_endline "success!"
     else
-      raise (Failure "Unable to validate: SMT check failed!")
+      failwith "Unable to validate: SMT check failed!"
   in
 
   let run init block =
     Printf.printf "Checking [%s] [%s]\n%!" init block;
-    let f x phase =
-      MoInst.from_string_block (String.of_string x) phase in
+    let f x phase = MoInst.from_string_block (String.of_string x) phase in
     let init = f init Init in
     let block = f block Block in
     if !arg_validate then validate init block;
-    (* if !arg_eval then eval init block; *)
     if !arg_display then display init block;
   in
 
