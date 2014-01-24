@@ -275,6 +275,7 @@ let is_start_location_valid t =
 
 let check ?(save=None) ?(model=None) t =
   if is_start_location_valid t
+     && is_connected t
      && is_decryptable t
   then
     let t = assign_families t in
@@ -282,8 +283,6 @@ let check ?(save=None) ?(model=None) t =
   else
     false
   (* not (is_pruneable g) *)
-  (* && is_connected g *)
-  (* && is_decryptable g *)
 
 let display_with_feh t =
   let module Display = struct

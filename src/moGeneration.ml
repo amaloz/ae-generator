@@ -23,19 +23,11 @@ let gengraphs init depth insts =
            if MoGraph.check g then
              begin
                Log.infof "It works!";
-               blocks := 1 :: !blocks
+               blocks := block :: !blocks
              end
          end
     | _ ->
        List.iter insts (iter depth ninputs block)
   in
   List.iter insts (iter depth 1 []);
-  List.fold !blocks ~init:0 ~f:(fun x i -> x + i)
-  
-  (* let rec loop_prepend depth ninputs block = *)
-  (*   match List.nth prepend (max_depth - depth) with *)
-  (*     | None -> List.iter insts (iter loop depth ninputs block) *)
-  (*     | Some i -> iter loop_prepend depth ninputs block i *)
-  (* in *)
-  (* loop_prepend depth 1 []; *)
-  (* !blocks *)
+  !blocks

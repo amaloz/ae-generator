@@ -115,9 +115,9 @@ let prf t =
 
 let start t =
   let lt_bool a b =
-  "(if (= "^a^" true)
-       (or (= "^b^" false) (= "^b^" true))
-       (= "^b^" false))" in
+    "(if (= "^b^" true)
+         (or (= "^a^" false) (= "^a^" true))
+         (= "^a^" false))" in
   let x = Stack.pop_exn t.items in
   let v = create_vars t "start" in
   Queue.enqueue t.code ("\
@@ -128,7 +128,6 @@ let start t =
 (assert (and (<= "^v.typ^" "^x.typ^")
              "^(lt_bool v.flag_prf x.flag_prf)^"
              "^(lt_bool v.flag_out x.flag_out)^"))");
-  (* t.start_vars <- v; *)
   Stack.push t.items v
 
 let xor t =
