@@ -18,7 +18,7 @@ let _ =
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
-     "LIST  Sets ops in list to on (+) or off (-); e.g., \"+TPRP,-GENZERO\"");
+     "LIST  Sets ops in list to on (+) or off (-); e.g., \"-XOR\"");
     ("-debug", Arg.Int MoUtils.set_debug_level,
      "N  Set debug level to N");
   ] in
@@ -29,8 +29,7 @@ let _ =
   Log.set_output stdout;
   
   let all = [
-    "DUP"; "GENRAND"; (* "INC"; *) "M"; "NEXTIV"; "OUT"; "PRF"; "START"; "XOR";
-    "SWAP"; "2SWAP"
+    "DUP"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "START"; "XOR"; "SWAP"; "2SWAP"
   ] in
   let all =
     let parse_ops all s =

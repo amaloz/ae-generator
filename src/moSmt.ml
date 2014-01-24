@@ -159,7 +159,7 @@ let op t = function
   | Nextiv_init -> nextiv t Init
   | Nextiv_block -> nextiv t Block
   | Out -> out t
-  | Prf -> prf t
+  | Prf | Prp -> prf t
   | Start -> start t
   | Xor -> xor t
 

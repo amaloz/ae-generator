@@ -9,7 +9,7 @@ let _ =
   let arg_block = ref "" in
   let arg_display = ref false in
   let arg_display_model = ref false in
-  (* let arg_eval = ref false in *)
+  let arg_eval = ref false in
   let arg_file = ref "" in
   let arg_save_smt = ref "" in
   let arg_validate = ref false in
@@ -23,8 +23,8 @@ let _ =
      "Display mode as a graph (need 'dot' and 'feh')");
     ("-display-model", Arg.Set arg_display_model,
      "Display mode as a graph with correct assignments");
-    (* ("-eval", Arg.Set arg_eval, *)
-    (*  "Evaluate the given mode"); *)
+    ("-eval", Arg.Set arg_eval,
+     "Evaluate the given mode");
     ("-file", Arg.Set_string arg_file,
      "FILE  Run against modes given in FILE");
     ("-save-smt", Arg.Set_string arg_save_smt,
@@ -40,19 +40,22 @@ let _ =
   Log.set_log_level Log.DEBUG;
   Log.set_output stdout;
 
-  (* if !arg_display = false && !arg_eval = false && !arg_validate = false *)
-  (* then begin *)
-  (*   Printf.printf "one of -display, -eval, -validate must be set\n%!"; *)
-  (*   exit 1 *)
-  (* end; *)
+  if !arg_display = false && !arg_eval = false && !arg_validate = false
+  then begin
+    Printf.printf "one of -display, -eval, -validate must be set\n%!";
+    exit 1
+  end;
 
   let file = match !arg_file with
     | "" -> None
     | s -> Some s in
 
   let display init block =
-    let g = MoGraph.create init block in
-    MoGraph.display_with_feh g
+    MoGraph.create init block |> MoGraph.display_with_feh
+  in
+
+  let eval init block =
+    failwith "eval functionality not done yet!"
   in
 
   let validate init block =
@@ -66,7 +69,7 @@ let _ =
     if MoGraph.check ~save:save ~model:model g then
       print_endline "success!"
     else
-      failwith "Unable to validate: SMT check failed!"
+      raise (Failure "failure!")
   in
 
   let run init block =
@@ -75,23 +78,26 @@ let _ =
     let init = f init Init in
     let block = f block Block in
     if !arg_validate then validate init block;
+    if !arg_eval then eval init block;
     if !arg_display then display init block;
   in
 
   match file with
-    | None -> begin
-      try run !arg_init !arg_block
-      with Failure s -> print_endline s; exit 1
-    end
-    | Some fn -> begin
-      let parse line =
-        if line = "" then ()
-        else if String.contains ~pos:0 ~len:1 line '#' then ()
-        else
-          let rec loop l l' phase =
-            match l with
-              | [] -> failwith "Fatal: should never get here!"
-              | s :: ss ->
+  | None ->
+     begin
+       try run !arg_init !arg_block
+       with Failure s -> print_endline s; exit 1
+     end
+  | Some fn ->
+     begin
+       let parse line =
+         if line = "" then ()
+         else if String.contains ~pos:0 ~len:1 line '#' then ()
+         else
+           let rec loop l l' phase =
+             match l with
+             | [] -> failwith "Fatal: should never get here!"
+             | s :: ss ->
                 if String.contains ~pos:0 ~len:(String.length s) s ']' then
                   let s = String.filter ~f:(fun c -> c <> ']') s in
                   ss, String.concat ~sep:" " (List.rev (s :: l'))
@@ -100,15 +106,15 @@ let _ =
                   loop ss (s :: l') phase
                 else
                   loop ss (s :: l') phase
-          in
-          let l = String.split line ~on:' ' in
-          let l, init = loop l [] Init in
-          let _, block = loop l [] Block in
-          try run init block
-          with Failure s -> print_endline s; exit 1
-      in
-      let ic = In_channel.create fn in
-      let stream = Stream.from (fun _ -> In_channel.input_line ic) in
-      Stream.iter parse stream;
-      In_channel.close ic
-    end
+           in
+           let l = String.split line ~on:' ' in
+           let l, init = loop l [] Init in
+           let _, block = loop l [] Block in
+           try run init block
+           with Failure s -> print_endline s; exit 1
+       in
+       let ic = In_channel.create fn in
+       let stream = Stream.from (fun _ -> In_channel.input_line ic) in
+       Stream.iter parse stream;
+       In_channel.close ic
+     end

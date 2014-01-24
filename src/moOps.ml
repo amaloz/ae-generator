@@ -9,6 +9,7 @@ type instruction =
   | Nextiv_block
   | Out
   | Prf
+  | Prp
   | Start
   | Xor
 

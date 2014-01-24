@@ -11,6 +11,7 @@ let n_in = function
   | Instruction Nextiv_block -> 1
   | Instruction Out -> 1
   | Instruction Prf -> 1
+  | Instruction Prp -> 1
   | Instruction Start -> 1
   | Instruction Xor -> 2
   | StackInstruction Swap -> 2
@@ -24,6 +25,7 @@ let n_out = function
   | Instruction Nextiv_block -> 0
   | Instruction Out -> 0
   | Instruction Prf -> 1
+  | Instruction Prp -> 1
   | Instruction Start -> 1
   | Instruction Xor -> 1
   | StackInstruction Swap -> 2
@@ -39,6 +41,7 @@ let string_of_t = function
        | Nextiv_init | Nextiv_block -> "NEXTIV"
        | Out -> "OUT"
        | Prf -> "PRF"
+       | Prp -> "PRP"
        | Start -> "START"
        | Xor -> "XOR"
      end
@@ -65,6 +68,7 @@ let from_string s phase =
      end
   | "OUT" -> Instruction Out
   | "PRF" -> Instruction Prf
+  | "PRP" -> Instruction Prp
   | "START" -> Instruction Start
   | "XOR" -> Instruction Xor
   | "SWAP" -> StackInstruction Swap

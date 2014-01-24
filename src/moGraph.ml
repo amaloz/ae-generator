@@ -39,17 +39,61 @@ let create init block =
   List.iter block f;
   g
 
-let clear t = G.clear t
+let display_with_feh t =
+  let module Display = struct
+    include G
+    let ctr = ref 1
+    let vertex_name v =
+      let c =
+        if Mark.get v = 0
+        then begin
+          Mark.set v !ctr;
+          ctr := !ctr + 1;
+          Mark.get v
+        end
+        else Mark.get v in
+      Printf.sprintf "%s_%d" (MoInst.string_of_t (Instruction (V.label v))) c
+    let graph_attributes _ = []
+    let default_vertex_attributes _ = []
+    let vertex_attributes _ = []
+    let default_edge_attributes _ = []
+    let edge_attributes e = [`Label (string_of_e e)]
+    let get_subgraph _ = None
+  end in
+  let module Dot = Graph.Graphviz.Dot(Display) in
+  let tmp = Filename.temp_file "mode" ".dot" in
+  G.Mark.clear t;
+  let oc = Out_channel.create tmp in
+  Dot.output_graph oc t;
+  Out_channel.close oc;
+  ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
+  Sys.remove tmp
 
-let assign_families g =
+let display_model_with_feh t l =
+  failwith "display_model_with_feh not done yet!"
+  (* let f v v' l = *)
+  (*   match l with *)
+  (*   | [] -> [] *)
+  (*   | (_, tag) :: rest -> *)
+  (*      let e = G.E.create v (Str tag) v' in *)
+  (*      G.remove_edge t v v'; *)
+  (*      G.add_edge_e t e; *)
+  (*      rest *)
+  (* in *)
+  (* let r = G.fold_edges f t l in *)
+  (* assert (List.length r = 0); *)
+  (* display_with_feh t *)
+
+
+let assign_families t =
   Log.infof "Assigning families to graph...";
   let replace_edge e set =
-    G.remove_edge_e g e;
+    G.remove_edge_e t e;
     let e = G.E.create (G.E.src e) set (G.E.dst e) in
     Log.debugf "    Families = %s" (string_of_e e);
-    G.add_edge_e g e
+    G.add_edge_e t e
   in
-  let parents e = G.E.src e |> G.pred_e g in
+  let parents e = G.E.src e |> G.pred_e t in
   let parent e = parents e |> List.hd_exn in
   let are_parents_processed e =
     let f e = if Int.Set.length (G.E.label e) = 0 then raise Exit in
@@ -71,6 +115,7 @@ let assign_families g =
         | Genrand
         | M
         | Prf
+        | Prp
         | Start ->
            let set = Int.Set.singleton !fam_cnt in
            fam_cnt := !fam_cnt + 1;
@@ -89,18 +134,21 @@ let assign_families g =
            failwith "should not reach here!"
       end
     else
-      failwith "WHY!!!!!!!!!!!!!!!!"
+      begin
+        display_with_feh t;
+        failwith "WHY!!!!!!!!!!!!!!!!"
+      end
   in
-  G.iter_edges_e f g;
-  g
+  G.iter_edges_e f t;
+  t
 
-let validate ?(save=None) ?(model=None) g =
+let validate ?(save=None) ?(model=None) t =
   Log.infof "Validating graph...";
   let smt = MoSmt.create () in
   let f v =
     Log.infof "  Hit %s" ((MoOps.Instruction (G.V.label v)) |> MoInst.string_of_t);
     MoSmt.op smt (G.V.label v) in
-  G.iter_vertex f g;
+  G.iter_vertex f t;
   MoSmt.finalize smt;
   let fname = match save with
     | Some fn -> fn
@@ -130,36 +178,39 @@ let is_decryptable t =
     let continue cur dir =
       let l = next cur prev dir in
       match List.hd l with
-        | Some v -> loop g v cur dir
-        | None -> false in
+      | Some v -> loop g v cur dir
+      | None -> false in
 
     (* stop if we're in a cycle *)
     if G.Mark.get cur <> 0 then false
-    else begin
-      G.Mark.set cur 1;
-      match G.V.label cur with
-        | Dup -> begin
-          match dir with
-            | Forward ->
-              let l = next cur prev dir in
-              let f v = loop g v cur dir in
-              List.exists l f
-            | Backward -> begin
-              let n = List.hd (next cur prev Forward) in
-              let p = List.hd (next cur prev Backward) in
-              match n, p with
-                | Some n, Some p ->
-                  loop g n cur Forward || loop g p cur Backward
-                | Some _, None -> failwith "Fatal: DUP hit with no parent?"
-                | None, Some _ ->
-                  (* this case can happen if DUP connects directly to XOR, in
+    else
+      begin
+        G.Mark.set cur 1;
+        match G.V.label cur with
+        | Dup ->
+           begin
+             match dir with
+             | Forward ->
+                let l = next cur prev dir in
+                let f v = loop g v cur dir in
+                List.exists l f
+             | Backward ->
+                begin
+                  let n = List.hd (next cur prev Forward) in
+                  let p = List.hd (next cur prev Backward) in
+                  match n, p with
+                  | Some n, Some p ->
+                     loop g n cur Forward || loop g p cur Backward
+                  | Some _, None -> failwith "Fatal: DUP hit with no parent?"
+                  | None, Some _ ->
+                     (* this case can happen if DUP connects directly to XOR, in
                      which case we have *one* child, but as that child is the
                      node we are coming from, the 'next' function returns
                      nothing *)
-                  false
-                | None, None -> failwith "Fatal: DUP hit with no edges?"
-            end
-        end
+                     false
+                  | None, None -> failwith "Fatal: DUP hit with no edges?"
+                end
+           end
         | Genrand -> false
         (* | Inc -> continue cur dir *)
         | M -> continue cur dir
@@ -167,30 +218,33 @@ let is_decryptable t =
         | Start -> continue cur dir
         | Nextiv_block -> false
         | Out -> true
-        | Prf -> begin
-          match dir with
-            | Forward -> false
-            | Backward -> continue cur dir
-        end
-        (* | Prp -> continue cur dir *)
-        | Xor -> begin
-          match dir with
-            | Forward -> begin
-              let v = List.hd (next cur prev Forward) in
-              let v' = List.hd (next cur prev Backward) in
-              match v, v' with
-                | Some v, Some v' ->
-                  (loop g v cur Forward) && (loop g v' cur Backward)
-                | Some _, None -> false
-                | None, Some _ -> failwith "Fatal: XOR hit with no child?"
-                | None, None -> failwith "Fatal: XOR hit with no neighbors?"
-            end
-            | Backward ->
-              let l = next cur prev Backward in
-              let f v = loop g v cur Backward in
-              List.length l = 2 && List.for_all l ~f:f
-        end
-    end
+        | Prf ->
+           begin
+             match dir with
+             | Forward -> false
+             | Backward -> continue cur dir
+           end
+        | Prp -> continue cur dir
+        | Xor ->
+           begin
+             match dir with
+             | Forward ->
+                begin
+                  let v = List.hd (next cur prev Forward) in
+                  let v' = List.hd (next cur prev Backward) in
+                  match v, v' with
+                  | Some v, Some v' ->
+                     (loop g v cur Forward) && (loop g v' cur Backward)
+                  | Some _, None -> false
+                  | None, Some _ -> failwith "Fatal: XOR hit with no child?"
+                  | None, None -> failwith "Fatal: XOR hit with no neighbors?"
+                end
+             | Backward ->
+                let l = next cur prev Backward in
+                let f v = loop g v cur Backward in
+                List.length l = 2 && List.for_all l ~f:f
+           end
+      end
   in
   (* reset graph marks before traversing *)
   G.Mark.clear t;
@@ -258,9 +312,9 @@ let is_connected t =
 (*   try G.iter_vertex f t; false *)
 (*   with Exit -> true *)
 
-let count_inst t i =
-  let f v cnt = if G.V.label v = i then cnt + 1 else cnt in
-  G.fold_vertex f t 0
+(* let count_inst t i = *)
+(*   let f v cnt = if G.V.label v = i then cnt + 1 else cnt in *)
+(*   G.fold_vertex f t 0 *)
 
 let is_start_location_valid t =
   let f e =
@@ -282,50 +336,4 @@ let check ?(save=None) ?(model=None) t =
     validate ~save:save ~model:model t
   else
     false
-  (* not (is_pruneable g) *)
 
-let display_with_feh t =
-  let module Display = struct
-    include G
-    let ctr = ref 1
-    let vertex_name v =
-      let c =
-        if Mark.get v = 0
-        then begin
-          Mark.set v !ctr;
-          ctr := !ctr + 1;
-          Mark.get v
-        end
-        else Mark.get v in
-      Printf.sprintf "%s_%d" (MoInst.string_of_t (Instruction (V.label v))) c
-    let graph_attributes _ = []
-    let default_vertex_attributes _ = []
-    let vertex_attributes _ = []
-    let default_edge_attributes _ = []
-    let edge_attributes e = [`Label (string_of_e e)]
-    let get_subgraph _ = None
-  end in
-  let module Dot = Graph.Graphviz.Dot(Display) in
-
-  let tmp = Filename.temp_file "mode" ".dot" in
-  G.Mark.clear t;
-  let oc = Out_channel.create tmp in
-  Dot.output_graph oc t;
-  Out_channel.close oc;
-  ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
-  Sys.remove tmp
-
-let display_model_with_feh t l =
-  raise (Failure "not done yet")
-  (* let f v v' l = *)
-  (*   match l with *)
-  (*     | [] -> [] *)
-  (*     | (_, tag) :: rest -> *)
-  (*       let e = G.E.create v (Str tag) v' in *)
-  (*       G.remove_edge t v v'; *)
-  (*       G.add_edge_e t e; *)
-  (*       rest *)
-  (* in *)
-  (* let r = G.fold_edges f t l in *)
-  (* assert (List.length r = 0); *)
-  (* display_with_feh t *)

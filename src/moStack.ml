@@ -53,41 +53,41 @@ let eval init block =
   let msg = "12345678123456781234567812345678" in
   let key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
   let rnd = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
-  (* let c = new Cryptokit.Block.aes_encrypt (hex key) in *)
+  let c = new Cryptokit.Block.aes_encrypt (hex key) in
   let rec run_t s s' = function
-    | Instruction i -> begin
-      match i with
-        | Dup ->
-          let r = String.copy (Stack.top_exn s) in
-          Stack.push s r
-        | Genrand -> Stack.push s (hex rnd)
-        (* | Inc -> Stack.push s (hex (inc (tohex (Stack.pop_exn s)))) *)
-        | M -> Stack.push s (hex msg)
-        | Nextiv_init
-        | Nextiv_block
-        | Start -> Stack.push s' (Stack.pop_exn s)
-        | Out -> out := (tohex (Stack.pop_exn s)) :: !out
-        | Prf ->
-          let h = Cryptokit.Hash.md5 () in
-          let r = Cryptokit.hash_string h (Stack.pop_exn s) in
-          Stack.push s r
-        (* | Prp -> *)
-        (*   let r = String.create 16 in *)
-        (*   c#transform (Stack.pop_exn s) 0 r 0; *)
-        (*   Stack.push s r *)
-        | Xor ->
-          let s1 = Stack.pop_exn s in
-          let s2 = Stack.pop_exn s in
-          let r = xor (tohex s1) (tohex s2) in
-          Stack.push s (hex r)
+    | Instruction i ->
+       begin
+         match i with
+         | Dup ->
+            let r = String.copy (Stack.top_exn s) in
+            Stack.push s r
+         | Genrand -> Stack.push s (hex rnd)
+         (* | Inc -> Stack.push s (hex (inc (tohex (Stack.pop_exn s)))) *)
+         | M -> Stack.push s (hex msg)
+         | Nextiv_init
+         | Nextiv_block
+         | Start -> Stack.push s' (Stack.pop_exn s)
+         | Out -> out := (tohex (Stack.pop_exn s)) :: !out
+         | Prf ->
+            let h = Cryptokit.Hash.md5 () in
+            let r = Cryptokit.hash_string h (Stack.pop_exn s) in
+            Stack.push s r
+         | Prp ->
+           let r = String.create 16 in
+           c#transform (Stack.pop_exn s) 0 r 0;
+           Stack.push s r
+         | Xor ->
+            let s1 = Stack.pop_exn s in
+            let s2 = Stack.pop_exn s in
+            let r = xor (tohex s1) (tohex s2) in
+            Stack.push s (hex r)
     end
     | StackInstruction i ->
       MoInst.mod_stack i s
   in
-  let rec f l s s' =
-    match l with
-      | i :: rest -> run_t s s' i; f rest s s'
-      | [] -> () in
+  let rec f l s s' = match l with
+    | i :: rest -> run_t s s' i; f rest s s'
+    | [] -> () in
   let s = Stack.create () in
   let s' = Stack.create () in
   f init s s';
@@ -110,35 +110,37 @@ let is_pruneable i block =
     let cmpi i = prev = Instruction i in
     let cmps i = prev = StackInstruction i in
     match i with
-    | Instruction i -> begin
-      match i with
-      | Dup -> cmpi Dup
-      (* | Inc -> cmpi M || cmpi Inc || cmpi Prp || cmpi Genrand || cmpi Genzero *)
-      | Out -> cmpi M || (* cmpi Inc || *) cmpi Genrand
-      | Nextiv_block -> cmpi M
-      | Prf -> cmpi Prf || (* cmpi Prp ||  *)cmpi Genrand
-      (* | Prp -> cmpi Prf || cmpi Prp || cmpi TPrp || cmpi Genrand *)
-      | Xor -> cmpi Dup
-      | Genrand | M | Nextiv_init | Start -> false
-    end
-    | StackInstruction i -> begin
-      match i with
-      | Swap -> cmpi Dup || cmps Swap
-      | Twoswap -> cmps Twoswap
-    end
+    | Instruction i ->
+       begin
+         match i with
+         | Dup -> cmpi Dup
+         (* | Inc -> cmpi M || cmpi Inc || cmpi Prp || cmpi Genrand || cmpi Genzero *)
+         | Out -> cmpi M || (* cmpi Inc || *) cmpi Genrand
+         | Nextiv_block -> cmpi M
+         | Prf | Prp -> cmpi Prf || cmpi Prp || cmpi Genrand
+         | Xor -> cmpi Dup
+         | Genrand | M | Nextiv_init | Start -> false
+       end
+    | StackInstruction i ->
+       begin
+         match i with
+         | Swap -> cmpi Dup || cmps Swap
+         | Twoswap -> cmps Twoswap
+       end
   in
   let cmp_2prev i p p' =
     let cmpi_p i = p = Instruction i in
     let cmpi_p' i = p' = Instruction i in
     match i with
-      | Instruction i -> begin
-        match i with
-          | Out -> cmpi_p' M && ((* cmpi_p Prp ||  *)cmpi_p Dup)
-          | _ -> false
-      end
-      | _ -> false
+    | Instruction i ->
+       begin
+         match i with
+         | Out -> cmpi_p' M && (cmpi_p Prp || cmpi_p Dup)
+         | _ -> false
+       end
+    | _ -> false
   in
   match block with
-    | hd :: hd' :: _ -> cmp_prev i hd || cmp_2prev i hd hd'
-    | hd :: _ -> cmp_prev i hd
-    | [] -> false
+  | hd :: hd' :: _ -> cmp_prev i hd || cmp_2prev i hd hd'
+  | hd :: _ -> cmp_prev i hd
+  | [] -> false
