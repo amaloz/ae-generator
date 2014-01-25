@@ -25,7 +25,7 @@ let _ =
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
   Log.color_on();
-  Log.set_log_level Log.DEBUG;
+  Log.set_log_level Log.INFO;
   Log.set_output stdout;
   
   let all = [
@@ -58,22 +58,27 @@ let _ =
     let f s = MoInst.from_string s Block in
     List.map all ~f:f
   in
-  let total = ref 0 in
-  let found = ref 0 in
+  let num_total = ref 0 in
   let inc_total x =
     let len = List.length all in
-    total := !total + (Int.to_float len ** Int.to_float x |> Float.to_int)
+    num_total := !num_total + (Int.to_float len ** Int.to_float x |> Float.to_int)
   in
+  let found = ref [] in
   let init = MoInst.from_string_block (!arg_init) Init in
   let run block_depth =
     inc_total block_depth;
     let blocks = MoGeneration.gengraphs init block_depth all in
-    found := !found + (List.length blocks)
+    found := List.append !found blocks
   in
 
   if !arg_all then
     for i = 1 to !arg_block_depth do run i done
   else
     run !arg_block_depth;
-  Printf.printf ": possible modes: %d\n" !total;
-  Printf.printf ": found modes: %d\n" !found
+
+  List.iter !found (fun l ->
+                    Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
+  
+  Printf.printf ": possible modes: %d\n" !num_total;
+  Printf.printf ": found modes: %d\n" (List.length !found)
+

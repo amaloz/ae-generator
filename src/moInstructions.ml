@@ -80,6 +80,7 @@ let from_string_block s phase =
   let f s = from_string s phase in
   List.map (String.split s ~on:' ') f
 
+(* XXX: do we need this function? *)
 let mod_stack i s =
   match i with
   | Swap ->

@@ -78,6 +78,10 @@ let msg t =
   Stack.push t.items v
 
 let nextiv t phase =
+  let lt_bool a b = "\
+(assert (if (= "^b^" false)
+            (= "^a^" false)
+            (or (= "^a^" false) (= "^a^" true))))" in
   let x = Stack.pop_exn t.items in
   let v = create_vars t "nextiv" in
   Queue.enqueue t.code ("\
@@ -91,14 +95,14 @@ let nextiv t phase =
   begin
     match phase with
     | Init ->
-       t.start_vars <- v;
+       Stack.push t.items v
     | Block ->
-       Queue.enqueue t.code ("\
-(assert (= "^v.typ^" "^t.start_vars.typ^"))
-(assert (= "^v.flag_out^" "^t.start_vars.flag_out^"))
-(assert (= "^v.flag_prf^" "^t.start_vars.flag_prf^"))");
-  end;
-  Stack.push t.items v
+       begin
+         Queue.enqueue t.code ("(assert (= "^v.typ^" "^t.start_vars.typ^"))");
+         Queue.enqueue t.code (lt_bool t.start_vars.flag_out v.flag_out);
+         Queue.enqueue t.code (lt_bool t.start_vars.flag_prf v.flag_prf);
+       end
+  end
 
 let out t =
   let x = Stack.pop_exn t.items in
@@ -114,10 +118,6 @@ let prf t =
   genrand t
 
 let start t =
-  let lt_bool a b =
-    "(if (= "^b^" true)
-         (or (= "^a^" false) (= "^a^" true))
-         (= "^a^" false))" in
   let x = Stack.pop_exn t.items in
   let v = create_vars t "start" in
   Queue.enqueue t.code ("\
@@ -125,9 +125,10 @@ let start t =
 (declare-const "^v.typ^" Int)
 (declare-const "^v.flag_prf^" Bool)
 (declare-const "^v.flag_out^" Bool)
-(assert (and (<= "^v.typ^" "^x.typ^")
-             "^(lt_bool v.flag_prf x.flag_prf)^"
-             "^(lt_bool v.flag_out x.flag_out)^"))");
+(assert (and (= "^v.typ^" "^x.typ^")
+             (= "^v.flag_prf^" "^x.flag_prf^")
+             (= "^v.flag_out^" "^x.flag_out^")))");
+  t.start_vars <- v;
   Stack.push t.items v
 
 let xor t =
