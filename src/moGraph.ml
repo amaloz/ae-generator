@@ -99,6 +99,7 @@ let display_model_with_feh t l =
   (* display_with_feh t *)
 
 exception AssignFamiliesException
+exception AssignFamiliesBizarreError
 
 let assign_families t =
   Log.infof "Assigning families to graph...";
@@ -150,8 +151,8 @@ let assign_families t =
       end
     else
       begin
-        display_with_feh t;
-        failwith "WHY!!!!!!!!!!!!!!!!"
+        (* display_with_feh t; *)
+        raise AssignFamiliesBizarreError
       end
   in
   G.iter_edges_e f t;
@@ -349,8 +350,10 @@ let check ?(save=None) ?(model=None) t =
      && is_connected t
      && is_decryptable t
   then
-    let t = assign_families t in
-    validate ~save:save ~model:model t
+    try
+      let t = assign_families t in
+      validate ~save:save ~model:model t
+    with AssignFamiliesException -> false
   else
     false
 

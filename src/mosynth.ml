@@ -25,7 +25,7 @@ let _ =
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
   Log.color_on();
-  Log.set_log_level Log.INFO;
+  Log.set_log_level Log.DEBUG;
   Log.set_output stdout;
   
   let all = [
