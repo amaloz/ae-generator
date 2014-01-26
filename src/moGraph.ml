@@ -175,28 +175,29 @@ let validate ?(save=None) ?(model=None) t =
   result
 
 type dir = Forward | Backward
+let string_of_dir = function
+  | Forward -> "Forward"
+  | Backward -> "Backward"
 
 (* XXX: PCBC fails here *)
 let is_decryptable t =
   let rec loop g cur prev dir =
-
-    (* Printf.printf "cur = %s | prev = %s | dir = %s\n%!" *)
-    (*   (MoInst.string_of_t (Instruction (G.V.label cur))) *)
-    (*   (MoInst.string_of_t (Instruction (G.V.label prev))) *)
-    (*   (string_of_dir dir); *)
-
+    Log.debugf "cur = %s | prev = %s | dir = %s"
+               (MoInst.string_of_t (Instruction (G.V.label cur)))
+               (MoInst.string_of_t (Instruction (G.V.label prev)))
+               (string_of_dir dir);
     let next cur prev dir =
       let l = match dir with
         | Forward -> G.succ g cur
         | Backward -> G.pred g cur in
-      List.filter l ~f:(fun v -> v <> prev) in
-
+      List.filter l ~f:(fun v -> v <> prev)
+    in
     let continue cur dir =
       let l = next cur prev dir in
       match List.hd l with
       | Some v -> loop g v cur dir
-      | None -> false in
-
+      | None -> false
+    in
     (* stop if we're in a cycle *)
     if G.Mark.get cur <> 0 then false
     else
@@ -380,6 +381,7 @@ let eval t =
     r
   in
   let out = ref "" in
+  let nextiv = ref "" in
   let msg = "12345678123456781234567812345678" in
   let key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
   let rnd = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
@@ -391,17 +393,16 @@ let eval t =
        let r = String.copy (Stack.top_exn s) in
        Stack.push s r
     | Genrand ->
-       Stack.push s (hex rnd)
+       hex rnd |> Stack.push s
     | M ->
-       Stack.push s (hex msg)
+       hex msg |> Stack.push s
     | Nextiv_init
     | Start ->
        ()
     | Nextiv_block ->
-       let _ = Stack.pop_exn s in
-       ()
+       nextiv := Stack.pop_exn s |> tohex
     | Out ->
-       out := tohex (Stack.pop_exn s)
+       out := Stack.pop_exn s |> tohex
     | Prf ->
        let h = Cryptokit.Hash.md5 () in
        let r = Cryptokit.hash_string h (Stack.pop_exn s) in
@@ -414,7 +415,8 @@ let eval t =
        let s1 = Stack.pop_exn s in
        let s2 = Stack.pop_exn s in
        let r = xor (tohex s1) (tohex s2) in
-       Stack.push s (hex r)
+       hex r |> Stack.push s
   in
   G.iter_vertex visit t;
-  !out
+  assert (Stack.length s = 0);
+  !out :: [!nextiv]

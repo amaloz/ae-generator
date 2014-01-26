@@ -29,7 +29,7 @@ let _ =
   Log.set_output stdout;
   
   let all = [
-    "DUP"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "START"; "XOR"; "SWAP"; "2SWAP"
+    "DUP"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "XOR"; "SWAP"; "2SWAP"
   ] in
   let all =
     let parse_ops all s =

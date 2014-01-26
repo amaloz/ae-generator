@@ -5,8 +5,8 @@ module MoInst = MoInstructions
 let create_dup_tbl () =
   let module Key = struct
     module T = struct
-      type t = string with sexp
-      let compare = String.compare
+      type t = string list with sexp
+      let compare = List.compare ~cmp:String.compare
       let hash = Hashtbl.hash
     end
     include Hashtbl.Make(T)
@@ -15,6 +15,7 @@ let create_dup_tbl () =
 
 let exists tbl g =
   let r = MoGraph.eval g in
+  (* Log.debugf "%s\n%!" (List.to_string ~f:ident r); *)
   match Hashtbl.find tbl r with
   | Some _ -> true
   | None -> Hashtbl.set tbl ~key:r ~data:true; false
@@ -54,6 +55,6 @@ let gengraphs init depth insts =
     | _ ->
        List.iter insts (iter depth ninputs block)
   in
-  List.iter insts (iter depth 1 []);
+  List.iter insts (iter (depth - 1) 1 [Instruction Start]);
   
   !blocks
