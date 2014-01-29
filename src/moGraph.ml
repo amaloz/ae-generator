@@ -33,7 +33,21 @@ let create init block =
          Stack.push s dst
        done
     | StackInstruction i ->
-       MoInst.mod_stack i s
+       begin
+         match i with
+         | Swap ->
+            let x = Stack.pop_exn s in
+            let x' = Stack.pop_exn s in
+            Stack.push s x;
+            Stack.push s x'
+         | Twoswap ->
+            let x = Stack.pop_exn s in
+            let x' = Stack.pop_exn s in
+            let x'' = Stack.pop_exn s in
+            Stack.push s x;
+            Stack.push s x';
+            Stack.push s x''
+       end
   in
   List.iter init f;
   List.iter block f;
@@ -84,6 +98,8 @@ let display_model_with_feh t l =
   (* assert (List.length r = 0); *)
   (* display_with_feh t *)
 
+exception AssignFamiliesException
+exception AssignFamiliesBizarreError
 
 let assign_families t =
   Log.infof "Assigning families to graph...";
@@ -102,9 +118,9 @@ let assign_families t =
   let fam_cnt = ref 0 in
   let f e =
     let label = G.E.src e |> G.V.label in
-    Log.infof "  Hit edge %s -> %s"
-              ((MoOps.Instruction label) |> MoInst.string_of_t)
-              ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
+    Log.debugf "  Hit edge %s -> %s"
+               ((MoOps.Instruction label) |> MoInst.string_of_t)
+               ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
     if are_parents_processed e then
       begin
         match label with
@@ -126,7 +142,7 @@ let assign_families t =
            let r = List.last_exn elist in
            let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
            if Int.Set.length inter <> 0 then
-             failwith "related edges input into XOR";
+             raise AssignFamiliesException;
            let fam = Int.Set.union (G.E.label l) (G.E.label r) in
            replace_edge e fam
         | Nextiv_block
@@ -135,8 +151,8 @@ let assign_families t =
       end
     else
       begin
-        display_with_feh t;
-        failwith "WHY!!!!!!!!!!!!!!!!"
+        (* display_with_feh t; *)
+        raise AssignFamiliesBizarreError
       end
   in
   G.iter_edges_e f t;
@@ -146,7 +162,7 @@ let validate ?(save=None) ?(model=None) t =
   Log.infof "Validating graph...";
   let smt = MoSmt.create () in
   let f v =
-    Log.infof "  Hit %s" ((MoOps.Instruction (G.V.label v)) |> MoInst.string_of_t);
+    Log.debugf "  Hit %s" ((MoOps.Instruction (G.V.label v)) |> MoInst.string_of_t);
     MoSmt.op smt (G.V.label v) in
   G.iter_vertex f t;
   MoSmt.finalize smt;
@@ -160,27 +176,29 @@ let validate ?(save=None) ?(model=None) t =
   result
 
 type dir = Forward | Backward
+let string_of_dir = function
+  | Forward -> "Forward"
+  | Backward -> "Backward"
 
+(* XXX: PCBC fails here *)
 let is_decryptable t =
   let rec loop g cur prev dir =
-
-    (* Printf.printf "cur = %s | prev = %s | dir = %s\n%!" *)
-    (*   (MoInst.string_of_t (Instruction (G.V.label cur))) *)
-    (*   (MoInst.string_of_t (Instruction (G.V.label prev))) *)
-    (*   (string_of_dir dir); *)
-
+    Log.debugf "cur = %s | prev = %s | dir = %s"
+               (MoInst.string_of_t (Instruction (G.V.label cur)))
+               (MoInst.string_of_t (Instruction (G.V.label prev)))
+               (string_of_dir dir);
     let next cur prev dir =
       let l = match dir with
         | Forward -> G.succ g cur
         | Backward -> G.pred g cur in
-      List.filter l ~f:(fun v -> v <> prev) in
-
+      List.filter l ~f:(fun v -> v <> prev)
+    in
     let continue cur dir =
       let l = next cur prev dir in
       match List.hd l with
       | Some v -> loop g v cur dir
-      | None -> false in
-
+      | None -> false
+    in
     (* stop if we're in a cycle *)
     if G.Mark.get cur <> 0 then false
     else
@@ -332,8 +350,76 @@ let check ?(save=None) ?(model=None) t =
      && is_connected t
      && is_decryptable t
   then
-    let t = assign_families t in
-    validate ~save:save ~model:model t
+    try
+      let t = assign_families t in
+      validate ~save:save ~model:model t
+    with AssignFamiliesException -> false
   else
     false
 
+let eval t =
+  let hex s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
+  let tohex s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s in
+  let chr = function
+    | 0 -> '0' | 1 -> '1' | 2 -> '2' | 3 -> '3' | 4 -> '4' | 5 -> '5'
+    | 6 -> '6' | 7 -> '7' | 8 -> '8' | 9 -> '9' | 10 -> 'a' | 11 -> 'b'
+    | 12 -> 'c' | 13 -> 'd' | 14 -> 'e' | 15 -> 'f'
+    | _ -> failwith "Fatal: invalid character"
+  in
+  let ord = function
+    | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5
+    | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9 | 'a' -> 10 | 'b' -> 11
+    | 'c' -> 12 | 'd' -> 13 | 'e' -> 14 | 'f' -> 15
+    | _ -> failwith "Fatal: invalid character"
+  in
+  let xor s s' =
+    assert ((String.length s) = (String.length s'));
+    let len = String.length s in
+    let xor c c' = chr ((ord c) lxor (ord c')) in
+    let r = String.create len in
+    for i = 0 to len - 1 do
+      r.[i] <- xor s.[i] s'.[i]
+    done;
+    assert ((String.length r) = (String.length s));
+    r
+  in
+  let out = ref "" in
+  let nextiv = ref "" in
+  let msg = "12345678123456781234567812345678" in
+  let key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
+  let rnd = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
+  let c = new Cryptokit.Block.aes_encrypt (hex key) in
+  let s = Stack.create () in
+  let visit v =
+    match G.V.label v with
+    | Dup ->
+       let r = String.copy (Stack.top_exn s) in
+       Stack.push s r
+    | Genrand ->
+       hex rnd |> Stack.push s
+    | M ->
+       hex msg |> Stack.push s
+    | Nextiv_init
+    | Start ->
+       ()
+    | Nextiv_block ->
+       nextiv := Stack.pop_exn s |> tohex
+    | Out ->
+       out := Stack.pop_exn s |> tohex
+    | Prf ->
+       let h = Cryptokit.Hash.md5 () in
+       let r = Cryptokit.hash_string h (Stack.pop_exn s) in
+       Stack.push s r
+    | Prp ->
+       let r = String.create 16 in
+       c#transform (Stack.pop_exn s) 0 r 0;
+       Stack.push s r
+    | Xor ->
+       let s1 = Stack.pop_exn s in
+       let s2 = Stack.pop_exn s in
+       let r = xor (tohex s1) (tohex s2) in
+       hex r |> Stack.push s
+  in
+  G.iter_vertex visit t;
+  assert (Stack.length s = 0);
+  !out :: [!nextiv]
