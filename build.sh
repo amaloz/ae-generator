@@ -8,4 +8,3 @@ FLAGS="-I src -use-ocamlfind -cflags -annot,-g"
 
 ocamlbuild $FLAGS mosynth.byte
 ocamlbuild $FLAGS mocheck.byte
-# ocamlbuild $FLAGS moperf.native
