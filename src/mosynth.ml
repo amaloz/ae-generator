@@ -67,7 +67,7 @@ let _ =
     List.append found blocks
   in
   let range n = 
-    let rec f n = if n = 1 then [] else n :: (f (n - 1)) in
+    let rec f n = if n = 0 then [] else n :: (f (n - 1)) in
     f n |> List.rev
   in
   let found =
@@ -88,5 +88,25 @@ let _ =
                    Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
   
   Printf.printf ": possible modes: %d\n" num_total;
-  Printf.printf ": found modes: %d\n" (List.length found)
+  Printf.printf ": found modes: %d\n" (List.length found);
 
+  let bin l =
+    let t = Int.Table.create () in
+    let f i =
+      let len = List.length i in
+      match Hashtbl.find t len with
+      | None -> Hashtbl.add_exn t ~key:len ~data:1
+      | Some cnt -> Hashtbl.replace t ~key:len ~data:(cnt + 1)
+    in
+    List.iter l f;
+    let modesize size =
+      let count =
+        match Hashtbl.find t size with
+        | None -> 0
+        | Some cnt -> cnt
+      in
+      Printf.printf ": # modes of size %d = %d\n%!" size count
+    in
+    List.iter (range !arg_block_size) modesize
+  in
+  bin found

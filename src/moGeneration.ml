@@ -52,17 +52,18 @@ let gengraphs init depth insts =
       loop (depth - 1) n (i :: block)
   and loop depth ninputs block =
     match depth with
+    | _ when depth < 0 -> ()
     | 0 ->
        let block = List.rev block in
        if ninputs = 0 && MoStack.is_valid block then
          process init block
-    | _ ->
+    | _ when depth > 0 ->
        List.iter insts (iter depth ninputs block)
   in
   List.iter insts (iter (depth - 1) 1 [Instruction Start]);
-  (* XXX: total hack.  Because random graphs just don't parse correctly, we
-  store those blocks in the "unprocessed" list, and then repeatedly iterative
-  over it until we have no more failures. *)
+  (* XXX: total hack.  Because some seemingly random graphs just don't parse
+  correctly, we store those blocks in the "unprocessed" list, and then
+  repeatedly iterative over it until we have no more failures. *)
   let rec f () =
     Log.infof "RETRYING %d BLOCK(S)" (List.length !unprocessed);
     let l = !unprocessed in
