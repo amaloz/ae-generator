@@ -4,8 +4,10 @@ module MoInst = MoInstructions
 
 type labelvars = {
   typ : string;
-  flag_prf : string;
+  flag_inc : string;
+  flag_incd : string;
   flag_out : string;
+  flag_prf : string;
 }
 
 type t = {
@@ -19,7 +21,8 @@ let create () =
   let t = { ctr = 1;
             code = Queue.create ();
             items = Stack.create ();
-            start_vars = { typ = ""; flag_prf = ""; flag_out = "" };
+            start_vars = { typ = ""; flag_inc = ""; flag_incd = "";
+                           flag_out = ""; flag_prf = "" };
           } in
   let init = "\
 (declare-const R Int)
@@ -30,12 +33,18 @@ let create () =
   t
 
 let create_vars t fn =
-  let typ = "var" ^ "_" ^ fn ^ "_" ^ (string_of_int t.ctr) in
-  let flag_prf = "flag_prf" ^ "_" ^ fn ^ "_" ^ (string_of_int t.ctr) in
-  let flag_out = "flag_out" ^ "_" ^ fn ^ "_" ^ (string_of_int t.ctr) in
-  let r = { typ = typ; flag_prf = flag_prf; flag_out = flag_out } in
+  let f s = s ^ "_" ^ fn ^ "_" ^ (string_of_int t.ctr) in
+  let typ = f "var" in
+  let flag_inc = f "flag_inc" in
+  let flag_incd = f "flag_incd" in
+  let flag_out = f "flag_out" in
+  let flag_prf = f "flag_prf" in
+  let r = { typ = typ; flag_inc = flag_inc; flag_incd = flag_incd;
+            flag_out = flag_out; flag_prf = flag_prf } in
   t.ctr <- t.ctr + 1;
   r
+
+(* TODO: finish below! *)
 
 let dup t =
   let l = create_vars t "dup" in
@@ -66,6 +75,9 @@ let genrand t =
 (declare-const "^v.flag_out^" Bool)
 (assert (and (= "^v.typ^" R) (= "^v.flag_prf^" "^v.flag_out^" true)))");
   Stack.push t.items v
+
+let inc t =
+  failwith "not done yet!"
 
 let msg t =
   let v = create_vars t "m" in
@@ -156,6 +168,7 @@ let xor t =
 let op t = function
   | Dup -> dup t
   | Genrand -> genrand t
+  | Inc -> inc t
   | M -> msg t
   | Nextiv_init -> nextiv t Init
   | Nextiv_block -> nextiv t Block

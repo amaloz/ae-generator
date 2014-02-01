@@ -6,6 +6,7 @@ type t = operations
 let n_in = function
   | Instruction Dup -> 1
   | Instruction Genrand -> 0
+  | Instruction Inc -> 1
   | Instruction M -> 0
   | Instruction Nextiv_init -> 1
   | Instruction Nextiv_block -> 1
@@ -20,6 +21,7 @@ let n_in = function
 let n_out = function
   | Instruction Dup -> 2
   | Instruction Genrand -> 1
+  | Instruction Inc -> 1
   | Instruction M -> 1
   | Instruction Nextiv_init -> 1
   | Instruction Nextiv_block -> 0
@@ -37,6 +39,7 @@ let string_of_t = function
        match i with
        | Dup -> "DUP"
        | Genrand -> "GENRAND"
+       | Inc -> "INC"
        | M -> "M"
        | Nextiv_init | Nextiv_block -> "NEXTIV"
        | Out -> "OUT"
@@ -59,6 +62,7 @@ let from_string s phase =
   match String.uppercase s with
   | "DUP" -> Instruction Dup
   | "GENRAND" -> Instruction Genrand
+  | "INC" -> Instruction Inc
   | "M" -> Instruction M
   | "NEXTIV" ->
      begin
@@ -79,19 +83,3 @@ let from_string s phase =
 let from_string_block s phase =
   let f s = from_string s phase in
   List.map (String.split s ~on:' ') f
-
-(* XXX: do we need this function? *)
-let mod_stack i s =
-  match i with
-  | Swap ->
-     let x = Stack.pop_exn s in
-     let x' = Stack.pop_exn s in
-     Stack.push s x;
-     Stack.push s x'
-  | Twoswap ->
-     let x = Stack.pop_exn s in
-     let x' = Stack.pop_exn s in
-     let x'' = Stack.pop_exn s in
-     Stack.push s x;
-     Stack.push s x';
-     Stack.push s x''

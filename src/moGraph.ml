@@ -125,6 +125,7 @@ let assign_families t =
       begin
         match label with
         | Dup
+        | Inc
         | Nextiv_init ->
            let e' = parent e in
            replace_edge e (G.E.label e')
@@ -230,7 +231,7 @@ let is_decryptable t =
                 end
            end
         | Genrand -> false
-        (* | Inc -> continue cur dir *)
+        | Inc -> continue cur dir
         | M -> continue cur dir
         | Nextiv_init
         | Start -> continue cur dir
@@ -358,29 +359,30 @@ let check ?(save=None) ?(model=None) t =
     false
 
 let eval t =
-  let hex s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
-  let tohex s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s in
+  let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
+  let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s in
   let chr = function
     | 0 -> '0' | 1 -> '1' | 2 -> '2' | 3 -> '3' | 4 -> '4' | 5 -> '5'
-    | 6 -> '6' | 7 -> '7' | 8 -> '8' | 9 -> '9' | 10 -> 'a' | 11 -> 'b'
-    | 12 -> 'c' | 13 -> 'd' | 14 -> 'e' | 15 -> 'f'
+    | 6 -> '6' | 7 -> '7' | 8 -> '8' | 9 -> '9' | 10 -> 'A' | 11 -> 'B'
+    | 12 -> 'C' | 13 -> 'D' | 14 -> 'E' | 15 -> 'F'
     | _ -> failwith "Fatal: invalid character"
   in
   let ord = function
     | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5
-    | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9 | 'a' -> 10 | 'b' -> 11
-    | 'c' -> 12 | 'd' -> 13 | 'e' -> 14 | 'f' -> 15
+    | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9
+    | 'a' | 'A' -> 10 | 'b' | 'B' -> 11 | 'c' | 'C' -> 12 | 'd' | 'D' -> 13
+    | 'e' | 'E' -> 14 | 'f' | 'F' -> 15
     | _ -> failwith "Fatal: invalid character"
   in
   let xor s s' =
-    assert ((String.length s) = (String.length s'));
+    assert (String.length s = String.length s');
     let len = String.length s in
     let xor c c' = chr ((ord c) lxor (ord c')) in
     let r = String.create len in
     for i = 0 to len - 1 do
       r.[i] <- xor s.[i] s'.[i]
     done;
-    assert ((String.length r) = (String.length s));
+    assert (String.length r = String.length s);
     r
   in
   let out = ref "" in
@@ -388,37 +390,39 @@ let eval t =
   let msg = "12345678123456781234567812345678" in
   let key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
   let rnd = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in
-  let c = new Cryptokit.Block.aes_encrypt (hex key) in
+  let c = new Cryptokit.Block.aes_encrypt (ofhexstr key) in
+  let h = Cryptokit.Hash.md5 () in
   let s = Stack.create () in
   let visit v =
     match G.V.label v with
     | Dup ->
-       let r = String.copy (Stack.top_exn s) in
-       Stack.push s r
+       String.copy (Stack.top_exn s) |> Stack.push s
     | Genrand ->
-       hex rnd |> Stack.push s
+       Stack.push s rnd
+    | Inc ->
+       let str = Stack.pop_exn s in
+       let len = String.length str in
+       str.[len-1] <- ord str.[len-1] |> (+) 1 |> chr;
+       Stack.push s str
     | M ->
-       hex msg |> Stack.push s
+       Stack.push s msg
     | Nextiv_init
     | Start ->
        ()
     | Nextiv_block ->
-       nextiv := Stack.pop_exn s |> tohex
+       nextiv := Stack.pop_exn s
     | Out ->
-       out := Stack.pop_exn s |> tohex
+       out := Stack.pop_exn s
     | Prf ->
-       let h = Cryptokit.Hash.md5 () in
-       let r = Cryptokit.hash_string h (Stack.pop_exn s) in
-       Stack.push s r
+       Cryptokit.hash_string h (Stack.pop_exn s |> ofhexstr)
+       |> tohexstr
+       |> Stack.push s
     | Prp ->
        let r = String.create 16 in
-       c#transform (Stack.pop_exn s) 0 r 0;
-       Stack.push s r
+       c#transform (Stack.pop_exn s |> ofhexstr) 0 r 0;
+       tohexstr r |> Stack.push s
     | Xor ->
-       let s1 = Stack.pop_exn s in
-       let s2 = Stack.pop_exn s in
-       let r = xor (tohex s1) (tohex s2) in
-       hex r |> Stack.push s
+       xor (Stack.pop_exn s) (Stack.pop_exn s) |> Stack.push s
   in
   G.iter_vertex visit t;
   assert (Stack.length s = 0);

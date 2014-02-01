@@ -55,7 +55,8 @@ let _ =
   in
 
   let eval init block =
-    failwith "eval functionality not done yet!"
+    let l = MoGraph.create init block |> MoGraph.eval in
+    Printf.printf "Eval: %s\n%!" (List.to_string ~f:ident l)
   in
 
   let validate init block =

@@ -4,6 +4,7 @@ type phase = Init | Block
 type instruction =
   | Dup
   | Genrand
+  | Inc
   | M
   | Nextiv_init
   | Nextiv_block
