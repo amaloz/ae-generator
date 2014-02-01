@@ -26,8 +26,10 @@ let create () =
           } in
   let init = "\
 (declare-const R Int)
+(declare-const U Int)
 (declare-const B Int)
 (assert (= R 2))
+(assert (= U 1))
 (assert (= B 0))" in
   Queue.enqueue t.code init;
   t
@@ -44,25 +46,29 @@ let create_vars t fn =
   t.ctr <- t.ctr + 1;
   r
 
-(* TODO: finish below! *)
+let declare_consts x = "\
+(declare-const "^x.typ^" Int)
+(declare-const "^x.flag_inc^" Bool)
+(declare-const "^x.flag_incd^" Bool)
+(declare-const "^x.flag_out^" Bool)
+(declare-const "^x.flag_prf^" Bool)"
 
 let dup t =
-  let l = create_vars t "dup" in
-  let r = create_vars t "dup" in
+  let l = create_vars t "dup_l" in
+  let r = create_vars t "dup_r" in
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; DUP
-(declare-const "^l.typ^" Int)
-(declare-const "^l.flag_prf^" Bool)
-(declare-const "^l.flag_out^" Bool)
-(declare-const "^r.typ^" Int)
-(declare-const "^r.flag_prf^" Bool)
-(declare-const "^r.flag_out^" Bool)
-(assert (= "^x.typ^" "^l.typ^" "^r.typ^"))
-(assert (= (or "^l.flag_prf^" "^r.flag_prf^") "^x.flag_prf^"))
-(assert (= (or "^l.flag_out^" "^r.flag_out^") "^x.flag_out^"))
+"^(declare_consts l)^"
+"^(declare_consts r)^"
+(assert (= "^l.typ^" "^r.typ^" "^x.typ^"))
+(assert (= (and "^l.flag_inc^" "^r.flag_inc^") false))
+(assert (= (and "^l.flag_out^" "^r.flag_out^") false))
 (assert (= (and "^l.flag_prf^" "^r.flag_prf^") false))
-(assert (= (and "^l.flag_out^" "^r.flag_out^") false))");
+(assert (= (or "^l.flag_inc^" "^r.flag_inc^") "^x.flag_inc^"))
+(assert (= (or "^l.flag_out^" "^r.flag_out^") "^x.flag_out^"))
+(assert (= (or "^l.flag_prf^" "^r.flag_prf^") "^x.flag_prf^"))
+(assert (= "^l.flag_incd^" "^r.flag_incd^" "^x.flag_incd^"))");
   Stack.push t.items r;
   Stack.push t.items l
 
@@ -70,10 +76,10 @@ let genrand t =
   let v = create_vars t "genrand" in
   Queue.enqueue t.code ("\
 ;; GENRAND
-(declare-const "^v.typ^" Int)
-(declare-const "^v.flag_prf^" Bool)
-(declare-const "^v.flag_out^" Bool)
-(assert (and (= "^v.typ^" R) (= "^v.flag_prf^" "^v.flag_out^" true)))");
+"^(declare_consts v)^"
+(assert (= "^v.typ^" R))
+(assert (= "^v.flag_prf^" "^v.flag_out^" true))
+(assert (= "^v.flag_inc^" "^v.flag_incd^"))");
   Stack.push t.items v
 
 let inc t =
@@ -83,27 +89,26 @@ let msg t =
   let v = create_vars t "m" in
   Queue.enqueue t.code ("\
 ;; M
-(declare-const "^v.typ^" Int)
-(declare-const "^v.flag_prf^" Bool)
-(declare-const "^v.flag_out^" Bool)
-(assert (and (= "^v.typ^" B) (= "^v.flag_prf^" "^v.flag_out^" false)))");
+"^(declare_consts v)^"
+(assert (= "^v.typ^" B))
+(assert (= "^v.flag_inc^" "^v.flag_incd^" "^v.flag_out^" "^v.flag_prf^" false))");
   Stack.push t.items v
 
 let nextiv t phase =
+  let v = create_vars t "nextiv" in
+  let x = Stack.pop_exn t.items in
   let lt_bool a b = "\
 (assert (if (= "^b^" false)
             (= "^a^" false)
             (or (= "^a^" false) (= "^a^" true))))" in
-  let x = Stack.pop_exn t.items in
-  let v = create_vars t "nextiv" in
   Queue.enqueue t.code ("\
 ;; NEXTIV
-(declare-const "^v.typ^" Int)
-(declare-const "^v.flag_prf^" Bool)
-(declare-const "^v.flag_out^" Bool)
+"^(declare_consts v)^"
 (assert (and (= "^v.typ^" "^x.typ^")
-             (= "^v.flag_prf^" "^x.flag_prf^")
-             (= "^v.flag_out^" "^x.flag_out^")))");
+             (= "^v.flag_inc^" "^x.flag_inc^")
+             (= "^v.flag_incd^" "^x.flag_incd^")
+             (= "^v.flag_out^" "^x.flag_out^")
+             (= "^v.flag_prf^" "^x.flag_prf^")))");
   begin
     match phase with
     | Init ->
@@ -111,6 +116,8 @@ let nextiv t phase =
     | Block ->
        begin
          Queue.enqueue t.code ("(assert (= "^v.typ^" "^t.start_vars.typ^"))");
+         Queue.enqueue t.code (lt_bool t.start_vars.flag_inc v.flag_inc);
+         (* TODO: missing INCd here? *)
          Queue.enqueue t.code (lt_bool t.start_vars.flag_out v.flag_out);
          Queue.enqueue t.code (lt_bool t.start_vars.flag_prf v.flag_prf);
        end
@@ -120,23 +127,23 @@ let out t =
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; OUT
-(assert (and (= "^x.typ^" R) (= "^x.flag_out^" true)))")
+(assert (= "^x.typ^" R))
+(assert (= "^x.flag_out^" true))")
 
 let prf t =
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; PRF
-(assert (and (= "^x.typ^" R) (= "^x.flag_prf^" true)))");
+(assert (= "^x.typ^" R))
+(assert (= "^x.flag_prf^" true))");
   genrand t
 
 let start t =
-  let x = Stack.pop_exn t.items in
   let v = create_vars t "start" in
+  let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; START
-(declare-const "^v.typ^" Int)
-(declare-const "^v.flag_prf^" Bool)
-(declare-const "^v.flag_out^" Bool)
+"^(declare_consts v)^"
 (assert (and (= "^v.typ^" "^x.typ^")
              (= "^v.flag_prf^" "^x.flag_prf^")
              (= "^v.flag_out^" "^x.flag_out^")))");
@@ -149,20 +156,22 @@ let xor t =
   let y = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; XOR
-(declare-const "^v.typ^" Int)
-(declare-const "^v.flag_prf^" Bool)
-(declare-const "^v.flag_out^" Bool)
+"^(declare_consts v)^"
 (assert (or (= "^x.typ^" R) (= "^y.typ^" R)))
+(assert (= "^x.flag_incd^" "^y.flag_incd^" false))
 (assert (= "^v.typ^" R))
+(assert (= "^v.flag_inc^" "^v.flag_incd^" false))
 (assert (if (= "^x.typ^" R)
             (if (= "^y.typ^" R)
                 (and
-                 (= (or "^x.flag_prf^" "^y.flag_prf^") "^v.flag_prf^")
-                 (= (or "^x.flag_out^" "^y.flag_out^") "^v.flag_out^"))
-                (and (= "^x.flag_prf^" "^v.flag_prf^")
-                     (= "^x.flag_out^" "^v.flag_out^")))
-            (and (= "^y.flag_prf^" "^v.flag_prf^")
-                 (= "^y.flag_out^" "^v.flag_out^"))))");
+                 (= (or "^x.flag_out^" "^y.flag_out^") "^v.flag_out^")
+                 (= (or "^x.flag_prf^" "^y.flag_prf^") "^v.flag_prf^"))
+                (and
+                 (= "^x.flag_out^" "^v.flag_out^")
+                 (= "^x.flag_prf^" "^v.flag_prf^")))
+            (and
+             (= "^y.flag_prf^" "^v.flag_prf^")
+             (= "^y.flag_out^" "^v.flag_out^"))))");
   Stack.push t.items v
 
 let op t = function
