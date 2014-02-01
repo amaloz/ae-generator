@@ -62,7 +62,6 @@ let _ =
   let all = instructions !arg_ops all in
   let init = MoInst.from_string_block (!arg_init) Init in
   let run found block_size =
-    (* XXX: breaks if block_size = 1 *)
     let blocks = MoGeneration.gengraphs init block_size all in
     List.append found blocks
   in
@@ -92,8 +91,15 @@ let _ =
 
   let bin l =
     let t = Int.Table.create () in
+    let block_length l =
+      let f acc = function
+        | Instruction _ -> acc + 1
+        | StackInstruction _ -> acc
+      in
+      List.fold_left l ~init:0 ~f:f
+    in
     let f i =
-      let len = List.length i in
+      let len = block_length i in
       match Hashtbl.find t len with
       | None -> Hashtbl.add_exn t ~key:len ~data:1
       | Some cnt -> Hashtbl.replace t ~key:len ~data:(cnt + 1)
