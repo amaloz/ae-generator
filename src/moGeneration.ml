@@ -25,10 +25,9 @@ let gengraphs init depth insts =
   let unprocessed = ref [] in
   let tbl = create_dup_tbl () in
   let process init block =
-    if MoUtils.get_debug_level () = 2 then
-      Log.infof "Trying [%s] [%s]"
-                (MoInst.string_of_t_list init)
-                (MoInst.string_of_t_list block);
+    Log.infof "Trying [%s] [%s]"
+              (MoInst.string_of_t_list init)
+              (MoInst.string_of_t_list block);
     let g = MoGraph.create init block in
     try
       if MoGraph.check g then

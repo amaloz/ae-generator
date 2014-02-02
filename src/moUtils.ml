@@ -1,14 +1,14 @@
 open Core.Std
 
-let debug_level = ref 0
-
-let get_debug_level () = !debug_level
-let set_debug_level n = debug_level := n
-
-let debug n format =
-  if !debug_level >= n
-  then Format.printf format
-  else Format.ifprintf Format.std_formatter format
+let debug_config n =
+  Log.color_on();
+  Log.set_log_level (match n with
+                     | 0 -> Log.FATAL
+                     | 1 -> Log.ERROR
+                     | 2 -> Log.WARN
+                     | 3 -> Log.INFO
+                     | _ -> Log.DEBUG);
+  Log.set_output stdout
 
 let run_proc cmd =
   let bufsize = 128 in

@@ -7,6 +7,7 @@ let _ =
 
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
   let arg_block = ref "" in
+  let arg_debug = ref 0 in
   let arg_display = ref false in
   let arg_display_model = ref false in
   let arg_eval = ref false in
@@ -31,14 +32,12 @@ let _ =
      "FILE  Save SMT code created during validation to FILE");
     ("-validate", Arg.Set arg_validate,
      "Validate the given mode");
-    ("-debug", Arg.Int MoUtils.set_debug_level,
+    ("-debug", Arg.Set_int arg_debug,
      "N  Sets debug level to N");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
-  Log.color_on();
-  Log.set_log_level Log.DEBUG;
-  Log.set_output stdout;
+  MoUtils.debug_config !arg_debug;
 
   if !arg_display = false && !arg_eval = false && !arg_validate = false
   then begin

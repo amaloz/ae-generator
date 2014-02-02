@@ -35,6 +35,7 @@ let _ =
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
   let arg_block_size = ref 7 in
   let arg_all = ref false in
+  let arg_debug = ref 0 in
   let arg_ops = ref "" in
 
   let arg_specs = [
@@ -47,14 +48,12 @@ let _ =
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
      "LIST  Sets ops in list to on (+) or off (-); e.g., \"-XOR\"");
-    ("-debug", Arg.Int MoUtils.set_debug_level,
+    ("-debug", Arg.Set_int arg_debug,
      "N  Set debug level to N");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
-  Log.color_on();
-  Log.set_log_level Log.DEBUG;
-  Log.set_output stdout;
+  MoUtils.debug_config !arg_debug;
   
   let all = [
     "DUP"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "XOR"; "SWAP"; "2SWAP"
