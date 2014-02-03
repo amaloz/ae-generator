@@ -2,6 +2,10 @@ open Core.Std
 open MoOps
 module MoInst = MoInstructions
 
+let range n =
+  let rec f n = if n = 0 then [] else n :: (f (n - 1)) in
+  f n |> List.rev
+
 let instructions l all =
   let parse_ops all s =
     let loop lst s =
@@ -28,7 +32,8 @@ let instructions l all =
   Log.infof "Supported instructions: %s" (List.to_string ident all);
   let f s = MoInst.from_string s Block in
   List.map all ~f:f
-                  
+
+
 let _ =
   let usage_msg () = "Usage: " ^ Sys.argv.(0) ^ " [<args>]\n" in
 
@@ -64,10 +69,6 @@ let _ =
     let blocks = MoGeneration.gengraphs init block_size all in
     List.append found blocks
   in
-  let range n = 
-    let rec f n = if n = 0 then [] else n :: (f (n - 1)) in
-    f n |> List.rev
-  in
   let found =
     if !arg_all then
       let sizes = range !arg_block_size in
@@ -84,11 +85,10 @@ let _ =
 
   List.iter found (fun l ->
                    Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
-  
   Printf.printf ": possible modes: %d\n" num_total;
   Printf.printf ": found modes: %d\n" (List.length found);
 
-  let bin l =
+  let bin_by_size l =
     let t = Int.Table.create () in
     let block_length l =
       let f acc = function
@@ -114,4 +114,34 @@ let _ =
     in
     List.iter (range !arg_block_size) modesize
   in
-  bin found
+  let bin_by_primitive l =
+    let t = String.Table.create () in
+    let has_prf l = List.exists l (fun i -> i = Instruction Prf) in
+    let has_prp l = List.exists l (fun i -> i = Instruction Prp) in
+    let inc s =
+      match Hashtbl.find t s with
+      | None -> Hashtbl.add_exn t ~key:s ~data:1
+      | Some cnt -> Hashtbl.replace t ~key:s ~data:(cnt + 1)
+    in
+    let f i =
+      let prf = has_prf i in
+      let prp = has_prp i in
+      match prf, prp with
+      | true, true -> inc "mixture"
+      | true, false -> inc "prf"
+      | false, true -> inc "prp"
+      | false, false -> failwith "no prf/prp in valid mode?!"
+    in
+    List.iter l f;
+    let primitive s =
+      let count =
+        match Hashtbl.find t s with
+        | None -> 0
+        | Some cnt -> cnt
+      in
+      Printf.printf ": # modes of primitive %s = %d\n%!" s count
+    in
+    List.iter ["prf"; "prp"; "mixture"] primitive
+  in
+  bin_by_size found;
+  bin_by_primitive found
