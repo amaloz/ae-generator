@@ -83,7 +83,17 @@ let genrand t =
   Stack.push t.items v
 
 let inc t =
-  failwith "not done yet!"
+  let v = create_vars t "inc" in
+  let x = Stack.pop_exn t.items in
+  Queue.enqueue t.code ("\
+;; INC
+(assert (or (= "^x.typ^" R) (= "^x.typ^" U)))
+(assert (= "^x.flag_inc^" true))
+"^(declare_consts v)^"
+(assert (= "^v.typ^" U))
+(assert (= "^v.flag_inc^" "^v.flag_incd^" "^v.flag_prf^" true))
+(assert (= "^v.flag_out^" false)) ");
+  Stack.push t.items v
 
 let msg t =
   let v = create_vars t "m" in
@@ -94,28 +104,32 @@ let msg t =
 (assert (= "^v.flag_inc^" "^v.flag_incd^" "^v.flag_out^" "^v.flag_prf^" false))");
   Stack.push t.items v
 
+let lt_bool a b = "\
+(assert (if (= "^b^" false)
+            (= "^a^" false)
+            (or (= "^a^" false) (= "^a^" true))))"
+
+
 let nextiv t phase =
   let v = create_vars t "nextiv" in
   let x = Stack.pop_exn t.items in
-  let lt_bool a b = "\
-(assert (if (= "^b^" false)
-            (= "^a^" false)
-            (or (= "^a^" false) (= "^a^" true))))" in
   Queue.enqueue t.code ("\
 ;; NEXTIV
 "^(declare_consts v)^"
-(assert (and (= "^v.typ^" "^x.typ^")
-             (= "^v.flag_inc^" "^x.flag_inc^")
-             (= "^v.flag_incd^" "^x.flag_incd^")
-             (= "^v.flag_out^" "^x.flag_out^")
-             (= "^v.flag_prf^" "^x.flag_prf^")))");
+(assert (= "^v.typ^" "^x.typ^"))
+(assert (= "^v.flag_inc^" "^x.flag_inc^"))
+(assert (= "^v.flag_incd^" "^x.flag_incd^"))
+(assert (= "^v.flag_out^" "^x.flag_out^"))
+(assert (= "^v.flag_prf^" "^x.flag_prf^"))");
   begin
     match phase with
     | Init ->
        Stack.push t.items v
     | Block ->
        begin
-         Queue.enqueue t.code ("(assert (= "^v.typ^" "^t.start_vars.typ^"))");
+         Queue.enqueue t.code ("\
+(assert (<= "^t.start_vars.typ^" "^v.typ^"))
+(assert (= "^t.start_vars.flag_incd^" "^v.flag_incd^"))");
          Queue.enqueue t.code (lt_bool t.start_vars.flag_inc v.flag_inc);
          (* TODO: missing INCd here? *)
          Queue.enqueue t.code (lt_bool t.start_vars.flag_out v.flag_out);
@@ -134,7 +148,7 @@ let prf t =
   let x = Stack.pop_exn t.items in
   Queue.enqueue t.code ("\
 ;; PRF
-(assert (= "^x.typ^" R))
+(assert (or (= "^x.typ^" R) (= "^x.typ^" U)))
 (assert (= "^x.flag_prf^" true))");
   genrand t
 
@@ -144,9 +158,11 @@ let start t =
   Queue.enqueue t.code ("\
 ;; START
 "^(declare_consts v)^"
-(assert (and (= "^v.typ^" "^x.typ^")
-             (= "^v.flag_prf^" "^x.flag_prf^")
-             (= "^v.flag_out^" "^x.flag_out^")))");
+(assert (<= "^v.typ^" "^x.typ^"))
+(assert (= "^v.flag_incd^" "^x.flag_incd^"))");
+  Queue.enqueue t.code (lt_bool v.flag_inc x.flag_inc);
+  Queue.enqueue t.code (lt_bool v.flag_out x.flag_out);
+  Queue.enqueue t.code (lt_bool v.flag_prf x.flag_prf);
   t.start_vars <- v;
   Stack.push t.items v
 
