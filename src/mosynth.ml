@@ -37,11 +37,14 @@ let instructions l all =
 let _ =
   let usage_msg () = "Usage: " ^ Sys.argv.(0) ^ " [<args>]\n" in
 
-  let arg_init = ref "GENRAND DUP OUT NEXTIV" in
-  let arg_block_size = ref 7 in
   let arg_all = ref false in
+  let arg_block_size = ref 7 in
+  let arg_decryptable_count = ref false in
   let arg_debug = ref 0 in
+  let arg_init = ref "GENRAND DUP OUT NEXTIV" in
+  let arg_latex = ref false in
   let arg_ops = ref "" in
+  let arg_valid_count = ref false in
 
   let arg_specs = [
     ("-all", Arg.Set arg_all,
@@ -49,6 +52,12 @@ let _ =
     ("-block-size", Arg.Set_int arg_block_size,
      "N  Number of instructions in the block to generate (default = "
      ^ (Int.to_string !arg_block_size) ^ ")");
+    ("-decryptable-count", Arg.Set arg_decryptable_count,
+     "Only calculate if the scheme is decryptable");
+    ("-valid-count", Arg.Set arg_valid_count,
+     "Only calculate if the scheme is a valid mode");
+    ("-latex", Arg.Set arg_latex,
+     "Output numbers in LaTeX for paper");
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
@@ -61,32 +70,35 @@ let _ =
   MoUtils.debug_config !arg_debug;
   
   let all = [
-    "DUP"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "XOR"; "SWAP"; "2SWAP"
+    "DUP"; "INC"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "XOR"; "SWAP"; "2SWAP"
   ] in
   let all = instructions !arg_ops all in
   let init = MoInst.from_string_block (!arg_init) Init in
-  let run found block_size =
-    let blocks = MoGeneration.gengraphs init block_size all in
+  let run f found block_size =
+    let blocks = MoGeneration.gen f init block_size all in
     List.append found blocks
+  in
+  let f = 
+    if !arg_decryptable_count then
+      (run MoGeneration.is_decryptable)
+    else if !arg_valid_count then
+      (run MoGeneration.is_valid)
+    else
+      (run MoGeneration.is_secure)
   in
   let found =
     if !arg_all then
       let sizes = range !arg_block_size in
-      List.fold_left sizes ~init:[] ~f:run
+      List.fold_left sizes ~init:[] ~f:f
     else
-      run [] !arg_block_size
+      f [] !arg_block_size
   in
-  let num_total =
-    let len = List.length all |> Int.to_float in
-    let f acc x = acc + (len ** Int.to_float x |> Float.to_int) in
-    let sizes = if !arg_all then range !arg_block_size else [!arg_block_size] in
-    List.fold_left sizes ~init:0 ~f:f
-  in
-
-  List.iter found (fun l ->
-                   Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
-  Printf.printf ": possible modes: %d\n" num_total;
-  Printf.printf ": found modes: %d\n" (List.length found);
+  (* let num_total = *)
+  (*   let len = List.length all |> Int.to_float in *)
+  (*   let f acc x = acc + (len ** Int.to_float x |> Float.to_int) in *)
+  (*   let sizes = if !arg_all then range !arg_block_size else [!arg_block_size] in *)
+  (*   List.fold_left sizes ~init:0 ~f:f *)
+  (* in *)
 
   let bin_by_size l =
     let t = Int.Table.create () in
@@ -110,7 +122,24 @@ let _ =
         | None -> 0
         | Some cnt -> cnt
       in
-      Printf.printf ": # modes of size %d = %d\n%!" size count
+      if !arg_latex then
+        let char =
+          if !arg_valid_count then 'v'
+          else if !arg_decryptable_count then 'd'
+          else 's' in
+        match size with
+        | _ when size < 7 -> ()
+        | 7 -> Printf.printf "\\newcommand{\\%cseven}{%d\\xspace}\n"
+                             char count
+        | 8 -> Printf.printf "\\newcommand{\\%ceight}{%d\\xspace}\n"
+                             char count
+        | 9 -> Printf.printf "\\newcommand{\\%cnine}{%d\\xspace}\n"
+                             char count
+        | 10 -> Printf.printf "\\newcommand{\\%cten}{%d\\xspace}\n"
+                              char count
+        | _ when size > 10 -> failwith "unsupported size"
+      else
+        Printf.printf ": # modes of size %d = %d\n%!" size count
     in
     List.iter (range !arg_block_size) modesize
   in
@@ -143,5 +172,16 @@ let _ =
     in
     List.iter ["prf"; "prp"; "mixture"] primitive
   in
+  List.iter found (fun l ->
+                   Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
+  Printf.printf ": found modes: %d\n" (List.length found);
   bin_by_size found;
+  if !arg_latex then
+    begin
+      let c =
+        if !arg_valid_count then 'v'
+        else if !arg_decryptable_count then 'd'
+        else 's' in
+      Printf.printf "\\newcommand{\\%ctotal}{%d\\xspace}\n" c (List.length found)
+    end;
   bin_by_primitive found

@@ -181,7 +181,6 @@ let string_of_dir = function
   | Forward -> "Forward"
   | Backward -> "Backward"
 
-(* XXX: PCBC fails here *)
 let is_decryptable t =
   let rec loop g cur prev dir =
     Log.debugf "cur = %s | prev = %s | dir = %s"
@@ -331,10 +330,6 @@ let is_connected t =
 (*   try G.iter_vertex f t; false *)
 (*   with Exit -> true *)
 
-(* let count_inst t i = *)
-(*   let f v cnt = if G.V.label v = i then cnt + 1 else cnt in *)
-(*   G.fold_vertex f t 0 *)
-
 let is_start_location_valid t =
   let f e =
     if G.E.src e |> G.V.label = Nextiv_init
@@ -344,13 +339,12 @@ let is_start_location_valid t =
         raise Exit
       end
   in
-  try G.iter_edges_e f t; true with _ -> false
+  try G.iter_edges_e f t; true with Exit -> false
+
+let is_valid t = is_start_location_valid t && is_connected t
 
 let check ?(save=None) ?(model=None) t =
-  if is_start_location_valid t
-     && is_connected t
-     && is_decryptable t
-  then
+  if is_valid t && is_decryptable t then
     try
       let t = assign_families t in
       validate ~save:save ~model:model t

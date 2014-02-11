@@ -15,12 +15,15 @@ let create_dup_tbl () =
 
 let exists tbl g =
   let r = MoGraph.eval g in
-  (* Log.debugf "%s\n%!" (List.to_string ~f:ident r); *)
   match Hashtbl.find tbl r with
   | Some _ -> true
   | None -> Hashtbl.set tbl ~key:r ~data:true; false
 
-let gengraphs init depth insts =
+let is_valid g = MoGraph.is_valid g
+let is_decryptable g = is_valid g && MoGraph.is_decryptable g
+let is_secure g = MoGraph.check g
+
+let gen f init depth insts =
   let blocks = ref [] in
   let unprocessed = ref [] in
   let tbl = create_dup_tbl () in
@@ -30,7 +33,7 @@ let gengraphs init depth insts =
               (MoInst.string_of_t_list block);
     let g = MoGraph.create init block in
     try
-      if MoGraph.check g then
+      if f g then
         begin
           Log.infof "It works!";
           if exists tbl g then
@@ -39,9 +42,8 @@ let gengraphs init depth insts =
             blocks := block :: !blocks
         end
     with _ ->
-      Log.errorf "bizarre error encountered!";
+      Log.warnf "bizarre error encountered!";
       unprocessed := List.append !unprocessed [block]
-      (* unprocessed := block :: !unprocessed *)
   in
   let rec iter depth ninputs block i =
     let n = ninputs - (MoInst.n_in i) + (MoInst.n_out i) in
@@ -66,10 +68,14 @@ let gengraphs init depth insts =
   let rec f () =
     Log.infof "RETRYING %d BLOCK(S)" (List.length !unprocessed);
     let l = !unprocessed in
+    let old_length = List.length l in
     unprocessed := [];
     List.iter l (process init);
-    if List.length !unprocessed <> 0 then
+    let len = List.length !unprocessed in
+    if len <> 0 && len <> old_length then
       f ()
+    else if len <> old_length then
+      Log.errorf "Giving up on processing block!"
   in
   f ();
   !blocks

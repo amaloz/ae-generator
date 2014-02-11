@@ -3,11 +3,13 @@ open MoOps
 
 let is_valid block =
   let eq x y = (Instruction x) = y in
-  not (List.count block (eq Out) <> 1
-       || List.count block (eq M) <> 1
-       || List.count block (eq Start) <> 1
-       || List.count block (eq Nextiv_block) <> 1
-       || List.count block (eq Genrand) <> 0)
+  List.count block (eq Out) = 1
+  && List.count block (eq M) = 1
+  && List.count block (eq Start) = 1
+  && List.count block (eq Nextiv_block) = 1
+  && List.count block (eq Genrand) = 0
+  && (List.count block (eq Prf) >= 1
+      || List.count block (eq Prp) >= 1)
 
 let is_pruneable i block =
   let cmp_prev i prev =
@@ -18,8 +20,8 @@ let is_pruneable i block =
        begin
          match i with
          | Dup -> cmpi Dup
-         (* | Inc -> cmpi M || cmpi Inc || cmpi Prp || cmpi Genrand || cmpi Genzero *)
-         | Out -> cmpi M || (* cmpi Inc || *) cmpi Genrand
+         | Inc -> cmpi M || cmpi Inc || cmpi Prp || cmpi Genrand
+         | Out -> cmpi M || cmpi Inc || cmpi Genrand
          | Nextiv_block -> cmpi M
          | Prf | Prp -> cmpi Prf || cmpi Prp || cmpi Genrand
          | Xor -> cmpi Dup
