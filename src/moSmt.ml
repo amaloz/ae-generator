@@ -244,12 +244,6 @@ let run fname =
   let s = MoUtils.run_proc ("z3 " ^ fname) in
   match List.hd_exn (String.split s ~on:'\n') with
   | "sat" -> true
-     (* begin *)
-     (*   (match model with *)
-     (*     | None -> () *)
-     (*     | Some g -> display_model g s); *)
-     (*   true *)
-     (* end *)
   | "unsat" -> false
   | _ -> raise (Failure ("Fatal: unknown Z3 error: " ^ s))
 

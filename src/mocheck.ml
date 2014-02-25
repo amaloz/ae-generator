@@ -9,7 +9,7 @@ let _ =
   let arg_block = ref "" in
   let arg_debug = ref 0 in
   let arg_display = ref false in
-  let arg_display_model = ref false in
+  (* let arg_display_model = ref false in *)
   let arg_eval = ref false in
   let arg_file = ref "" in
   let arg_save_smt = ref "" in
@@ -22,8 +22,8 @@ let _ =
      "BLOCK  Sets BLOCK to be the main block");
     ("-display", Arg.Set arg_display,
      "Display mode as a graph (need 'dot' and 'feh')");
-    ("-display-model", Arg.Set arg_display_model,
-     "Display mode as a graph with correct assignments");
+    (* ("-display-model", Arg.Set arg_display_model, *)
+    (*  "Display mode as a graph with correct assignments"); *)
     ("-eval", Arg.Set arg_eval,
      "Evaluate the given mode");
     ("-file", Arg.Set_string arg_file,
@@ -60,13 +60,13 @@ let _ =
 
   let validate init block =
     let g = MoGraph.create init block in
-    let model = match !arg_display_model with
-      | true -> Some g
-      | false -> None in
+    (* let model = match !arg_display_model with *)
+    (*   | true -> Some g *)
+    (*   | false -> None in *)
     let save = match !arg_save_smt with
       | "" -> None
       | s -> Some s in
-    if MoGraph.check ~save:save ~model:model g then
+    if MoGraph.check ~save:save g then
       print_endline "success!"
     else
       raise (Failure "failure!")

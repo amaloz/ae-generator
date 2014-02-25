@@ -83,8 +83,8 @@ let display_with_feh t =
   ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
   Sys.remove tmp
 
-let display_model_with_feh t l =
-  failwith "display_model_with_feh not done yet!"
+(* let display_model_with_feh t l = *)
+(*   failwith "display_model_with_feh not done yet!" *)
   (* let f v v' l = *)
   (*   match l with *)
   (*   | [] -> [] *)
@@ -182,21 +182,29 @@ let string_of_dir = function
   | Backward -> "Backward"
 
 let is_decryptable t =
-  let rec loop g cur prev dir =
+  let find label =
+    let f x y = if (G.V.label x) = label then x :: y else y in
+    let l = G.fold_vertex f t [] in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
+  let nextiv = find Nextiv_block in
+  let m = find M in
+  let rec loop cur prev dir reblock =
     Log.debugf "cur = %s | prev = %s | dir = %s"
                (MoInst.string_of_t (Instruction (G.V.label cur)))
                (MoInst.string_of_t (Instruction (G.V.label prev)))
                (string_of_dir dir);
     let next cur prev dir =
       let l = match dir with
-        | Forward -> G.succ g cur
-        | Backward -> G.pred g cur in
+        | Forward -> G.succ t cur
+        | Backward -> G.pred t cur in
       List.filter l ~f:(fun v -> v <> prev)
     in
     let continue cur dir =
       let l = next cur prev dir in
       match List.hd l with
-      | Some v -> loop g v cur dir
+      | Some v -> loop v cur dir reblock
       | None -> false
     in
     (* stop if we're in a cycle *)
@@ -210,15 +218,14 @@ let is_decryptable t =
              match dir with
              | Forward ->
                 let l = next cur prev dir in
-                let f v = loop g v cur dir in
-                List.exists l f
+                List.exists l (fun v -> loop v cur dir reblock)
              | Backward ->
                 begin
                   let n = List.hd (next cur prev Forward) in
                   let p = List.hd (next cur prev Backward) in
                   match n, p with
                   | Some n, Some p ->
-                     loop g n cur Forward || loop g p cur Backward
+                     loop n cur Forward reblock || loop p cur Backward reblock
                   | Some _, None -> failwith "Fatal: DUP hit with no parent?"
                   | None, Some _ ->
                      (* this case can happen if DUP connects directly to XOR, in
@@ -229,20 +236,30 @@ let is_decryptable t =
                   | None, None -> failwith "Fatal: DUP hit with no edges?"
                 end
            end
+        | Inc | M | Prp | Nextiv_init -> continue cur dir
         | Genrand -> false
-        | Inc -> continue cur dir
-        | M -> continue cur dir
-        | Nextiv_init
-        | Start -> continue cur dir
-        | Nextiv_block -> false
         | Out -> true
+        | Nextiv_block ->
+           if reblock then
+             continue cur dir
+           else
+             false
+        | Start ->
+           begin
+             if reblock then
+               continue cur dir
+             else
+               let r = continue cur dir in
+               (* clear marks before we traverse block again *)
+               G.Mark.clear t;
+               r && loop nextiv nextiv Backward true
+           end
         | Prf ->
            begin
              match dir with
              | Forward -> false
              | Backward -> continue cur dir
            end
-        | Prp -> continue cur dir
         | Xor ->
            begin
              match dir with
@@ -252,24 +269,21 @@ let is_decryptable t =
                   let v' = List.hd (next cur prev Backward) in
                   match v, v' with
                   | Some v, Some v' ->
-                     (loop g v cur Forward) && (loop g v' cur Backward)
+                     loop v cur Forward reblock && loop v' cur Backward reblock
                   | Some _, None -> false
                   | None, Some _ -> failwith "Fatal: XOR hit with no child?"
                   | None, None -> failwith "Fatal: XOR hit with no neighbors?"
                 end
              | Backward ->
                 let l = next cur prev Backward in
-                let f v = loop g v cur Backward in
+                let f v = loop v cur Backward reblock in
                 List.length l = 2 && List.for_all l ~f:f
            end
       end
   in
   (* reset graph marks before traversing *)
   G.Mark.clear t;
-  let find_ms g =
-    let f x y = if (G.V.label x) = M then x :: y else y in
-    G.fold_vertex f g [] in
-  let r = List.for_all (find_ms t) (fun v -> loop t v v Forward) in
+  let r = loop m m Forward false in
   if not r then
     Log.infof "Is not decryptable!";
   r
