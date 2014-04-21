@@ -14,20 +14,26 @@ let string_of_e e =
   let l = G.E.label e |> Int.Set.to_list in
   List.to_string Int.to_string l
 
-type t = G.t
+(* maintain separate vertex and edge orderings so we can correctly traverse in
+order *)
+type t = { g : G.t; v : G.V.t list; e : G.E.t list }
 
 let create init block =
   let s = Stack.create () in
   let g = G.create () in
+  let vl = ref [] in
+  let el = ref [] in
   let f inst =
     match inst with
     | Instruction i ->
        let dst = G.V.create i in
        G.add_vertex g dst;
+       vl := List.append !vl [dst];
        for j = 1 to MoInst.n_in inst do
          let src = Stack.pop_exn s in
          let e = G.E.create src Int.Set.empty dst in
-         G.add_edge_e g e
+         G.add_edge_e g e;
+         el := List.append !el [e];
        done;
        for j = 1 to MoInst.n_out inst do
          Stack.push s dst
@@ -51,7 +57,8 @@ let create init block =
   in
   List.iter init f;
   List.iter block f;
-  g
+  let t = { g = g; v = !vl; e = !el } in
+  t
 
 let display_with_feh t =
   let module Display = struct
@@ -76,87 +83,64 @@ let display_with_feh t =
   end in
   let module Dot = Graph.Graphviz.Dot(Display) in
   let tmp = Filename.temp_file "mode" ".dot" in
-  G.Mark.clear t;
+  G.Mark.clear t.g;
   let oc = Out_channel.create tmp in
-  Dot.output_graph oc t;
+  Dot.output_graph oc t.g;
   Out_channel.close oc;
   ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
   Sys.remove tmp
 
-(* let display_model_with_feh t l = *)
-(*   failwith "display_model_with_feh not done yet!" *)
-  (* let f v v' l = *)
-  (*   match l with *)
-  (*   | [] -> [] *)
-  (*   | (_, tag) :: rest -> *)
-  (*      let e = G.E.create v (Str tag) v' in *)
-  (*      G.remove_edge t v v'; *)
-  (*      G.add_edge_e t e; *)
-  (*      rest *)
-  (* in *)
-  (* let r = G.fold_edges f t l in *)
-  (* assert (List.length r = 0); *)
-  (* display_with_feh t *)
-
 exception AssignFamiliesException
-exception AssignFamiliesBizarreError
 
 let assign_families t =
   Log.infof "Assigning families to graph...";
   let replace_edge e set =
-    G.remove_edge_e t e;
+    G.remove_edge_e t.g e;
     let e = G.E.create (G.E.src e) set (G.E.dst e) in
     Log.debugf "    Families = %s" (string_of_e e);
-    G.add_edge_e t e
+    G.add_edge_e t.g e
   in
-  let parents e = G.E.src e |> G.pred_e t in
+  let parents e = G.E.src e |> G.pred_e t.g in
   let parent e = parents e |> List.hd_exn in
-  let are_parents_processed e =
-    let f e = if Int.Set.length (G.E.label e) = 0 then raise Exit in
-    try List.iter (parents e) f; true with Exit -> false
-  in
+  (* let are_parents_processed e = *)
+  (*   let f e = if Int.Set.length (G.E.label e) = 0 then raise Exit in *)
+  (*   try List.iter (parents e) f; true with Exit -> false *)
+  (* in *)
   let fam_cnt = ref 0 in
   let f e =
     let label = G.E.src e |> G.V.label in
     Log.debugf "  Hit edge %s -> %s"
                ((MoOps.Instruction label) |> MoInst.string_of_t)
                ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
-    if are_parents_processed e then
-      begin
-        match label with
-        | Dup
-        | Inc
-        | Nextiv_init ->
-           let e' = parent e in
-           replace_edge e (G.E.label e')
-        | Genrand
-        | M
-        | Prf
-        | Prp
-        | Start ->
-           let set = Int.Set.singleton !fam_cnt in
-           fam_cnt := !fam_cnt + 1;
-           replace_edge e set
-        | Xor ->
-           let elist = parents e in
-           let l = List.hd_exn elist in
-           let r = List.last_exn elist in
-           let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
-           if Int.Set.length inter <> 0 then
-             raise AssignFamiliesException;
-           let fam = Int.Set.union (G.E.label l) (G.E.label r) in
-           replace_edge e fam
-        | Nextiv_block
-        | Out ->
-           failwith "should not reach here!"
-      end
-    else
-      begin
-        (* display_with_feh t; *)
-        raise AssignFamiliesBizarreError
-      end
+    (* assert (are_parents_processed e); *)
+    match label with
+    | Dup
+    | Inc
+    | Nextiv_init ->
+       let e' = parent e in
+       replace_edge e (G.E.label e')
+    | Genrand
+    | M
+    | Prf
+    | Prp
+    | Start ->
+       let set = Int.Set.singleton !fam_cnt in
+       fam_cnt := !fam_cnt + 1;
+       replace_edge e set
+    | Xor ->
+       let elist = parents e in
+       let l = List.hd_exn elist in
+       let r = List.last_exn elist in
+       let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
+       if Int.Set.length inter <> 0 then
+         raise AssignFamiliesException;
+       let fam = Int.Set.union (G.E.label l) (G.E.label r) in
+       replace_edge e fam
+    | Nextiv_block
+    | Out ->
+       failwith "should not reach here!"
   in
-  G.iter_edges_e f t;
+  List.iter t.e f;
   t
 
 let validate ?(save=None) ?(model=None) t =
@@ -165,7 +149,7 @@ let validate ?(save=None) ?(model=None) t =
   let f v =
     Log.debugf "  Hit %s" ((MoOps.Instruction (G.V.label v)) |> MoInst.string_of_t);
     MoSmt.op smt (G.V.label v) in
-  G.iter_vertex f t;
+  List.iter t.v f;
   MoSmt.finalize smt;
   let fname = match save with
     | Some fn -> fn
@@ -184,7 +168,7 @@ let string_of_dir = function
 let is_decryptable t =
   let find label =
     let f x y = if (G.V.label x) = label then x :: y else y in
-    let l = G.fold_vertex f t [] in
+    let l = G.fold_vertex f t.g [] in
     assert (List.length l = 1);
     List.hd_exn l
   in
@@ -197,8 +181,8 @@ let is_decryptable t =
                (string_of_dir dir);
     let next cur prev dir =
       let l = match dir with
-        | Forward -> G.succ t cur
-        | Backward -> G.pred t cur in
+        | Forward -> G.succ t.g cur
+        | Backward -> G.pred t.g cur in
       List.filter l ~f:(fun v -> v <> prev)
     in
     let continue cur dir =
@@ -251,7 +235,7 @@ let is_decryptable t =
              else
                let r = continue cur dir in
                (* clear marks before we traverse block again *)
-               G.Mark.clear t;
+               G.Mark.clear t.g;
                r && loop nextiv nextiv Backward true
            end
         | Prf ->
@@ -282,7 +266,7 @@ let is_decryptable t =
       end
   in
   (* reset graph marks before traversing *)
-  G.Mark.clear t;
+  G.Mark.clear t.g;
   let r = loop m m Forward false in
   if not r then
     Log.infof "Is not decryptable!";
@@ -299,15 +283,15 @@ let is_connected t =
       | Some v ->
         if not (H.mem h v) then begin
           H.add h v ();
-          G.iter_succ (Stack.push s) t v;
-          G.iter_pred (Stack.push s) t v
+          G.iter_succ (Stack.push s) t.g v;
+          G.iter_pred (Stack.push s) t.g v
         end;
         visit s
   in
   let s = Stack.create () in
   let v =
     try
-      G.iter_vertex (fun v -> raise (Vertex v)) t;
+      List.iter t.v (fun v -> raise (Vertex v));
       raise Not_found
     with Vertex v -> v
   in
@@ -315,34 +299,25 @@ let is_connected t =
   visit s;
   try
     let f v = if not (H.mem h v) then raise Exit in
-    G.iter_vertex f t;
+    List.iter t.v f;
     true
   with Exit ->
     Log.infof "Is not connected!";
     false
 
-(* let is_pruneable t = *)
-(*   let f v = *)
-(*     let l = G.succ t v in *)
-(*     let f v' = *)
-(*       match G.V.label v, G.V.label v' with *)
-(*         | Dup, Dup *)
-(*         | Genrand, (Out | Nextiv_init | Nextiv_block) *)
-(*         | Genzero, Out *)
-(*         | Inc, (Inc | Out) *)
-(*         | M, (Inc | Out) *)
-(*         | Prp, Prp -> raise Exit *)
-(*         | M, Dup -> *)
-(*           let l = G.succ t v' in *)
-(*           if List.exists l (fun x -> G.V.label x = Out) *)
-(*           then raise Exit *)
-(*           else () *)
-(*         | _, _ -> () *)
-(*     in *)
-(*     List.iter l f *)
-(*   in *)
-(*   try G.iter_vertex f t; false *)
-(*   with Exit -> true *)
+let has_right_nodes t =
+  let prp_or_prf =
+    let prp = List.count t.v (fun v -> G.V.label v = Prp) in
+    let prf = List.count t.v (fun v -> G.V.label v = Prf) in
+    prp + prf <> 0
+  in
+  let has inst num = List.count t.v (fun v -> G.V.label v = inst) = num in
+  prp_or_prf
+  && has M 1
+  && has Start 1
+  && has Out 2                  (* one in Init and Block each *)
+  && has Nextiv_block 1
+  && has Genrand 1              (* one in Init, none in Block *)
 
 let is_start_location_valid t =
   let f e =
@@ -353,9 +328,9 @@ let is_start_location_valid t =
         raise Exit
       end
   in
-  try G.iter_edges_e f t; true with Exit -> false
+  try List.iter t.e f; true with Exit -> false
 
-let is_valid t = is_start_location_valid t && is_connected t
+let is_valid t = is_start_location_valid t && has_right_nodes t && is_connected t
 
 let check ?(save=None) ?(model=None) t =
   if is_valid t && is_decryptable t then
@@ -390,7 +365,6 @@ let eval t =
     for i = 0 to len - 1 do
       r.[i] <- xor s.[i] s'.[i]
     done;
-    assert (String.length r = String.length s);
     r
   in
   let out = ref "" in
@@ -410,7 +384,12 @@ let eval t =
     | Inc ->
        let str = Stack.pop_exn s in
        let len = String.length str in
-       str.[len-1] <- ord str.[len-1] |> (+) 1 |> chr;
+       begin
+         try
+           str.[len-1] <- ord str.[len-1] |> (+) 1 |> chr
+         with _ ->
+           str.[len-1] <- '0'
+       end;
        Stack.push s str
     | M ->
        Stack.push s msg
@@ -432,6 +411,6 @@ let eval t =
     | Xor ->
        xor (Stack.pop_exn s) (Stack.pop_exn s) |> Stack.push s
   in
-  G.iter_vertex visit t;
+  List.iter t.v visit;
   assert (Stack.length s = 0);
   !out :: [!nextiv]

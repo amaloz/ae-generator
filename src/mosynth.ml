@@ -42,7 +42,6 @@ let _ =
   let arg_decryptable_count = ref false in
   let arg_debug = ref 0 in
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
-  let arg_latex = ref false in
   let arg_ops = ref "" in
   let arg_valid_count = ref false in
 
@@ -56,14 +55,12 @@ let _ =
      "Only calculate if the scheme is decryptable");
     ("-valid-count", Arg.Set arg_valid_count,
      "Only calculate if the scheme is a valid mode");
-    ("-latex", Arg.Set arg_latex,
-     "Output numbers in LaTeX for paper");
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
      "LIST  Sets ops in list to on (+) or off (-); e.g., \"-XOR\"");
     ("-debug", Arg.Set_int arg_debug,
-     "N  Set debug level to N");
+     "N  Set debug level to N (0 ≤ N ≤ 4)");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
@@ -93,12 +90,6 @@ let _ =
     else
       f [] !arg_block_size
   in
-  (* let num_total = *)
-  (*   let len = List.length all |> Int.to_float in *)
-  (*   let f acc x = acc + (len ** Int.to_float x |> Float.to_int) in *)
-  (*   let sizes = if !arg_all then range !arg_block_size else [!arg_block_size] in *)
-  (*   List.fold_left sizes ~init:0 ~f:f *)
-  (* in *)
 
   let bin_by_size l =
     let t = Int.Table.create () in
@@ -122,24 +113,7 @@ let _ =
         | None -> 0
         | Some cnt -> cnt
       in
-      if !arg_latex then
-        let char =
-          if !arg_valid_count then 'v'
-          else if !arg_decryptable_count then 'd'
-          else 's' in
-        match size with
-        | _ when size < 7 -> ()
-        | 7 -> Printf.printf "\\newcommand{\\%cseven}{%d\\xspace}\n"
-                             char count
-        | 8 -> Printf.printf "\\newcommand{\\%ceight}{%d\\xspace}\n"
-                             char count
-        | 9 -> Printf.printf "\\newcommand{\\%cnine}{%d\\xspace}\n"
-                             char count
-        | 10 -> Printf.printf "\\newcommand{\\%cten}{%d\\xspace}\n"
-                              char count
-        | _ when size > 10 -> failwith "unsupported size"
-      else
-        Printf.printf ": # modes of size %d = %d\n%!" size count
+      Printf.printf ": # modes of size %d = %d\n%!" size count
     in
     List.iter (range !arg_block_size) modesize
   in
@@ -176,12 +150,4 @@ let _ =
                    Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
   Printf.printf ": found modes: %d\n" (List.length found);
   bin_by_size found;
-  if !arg_latex then
-    begin
-      let c =
-        if !arg_valid_count then 'v'
-        else if !arg_decryptable_count then 'd'
-        else 's' in
-      Printf.printf "\\newcommand{\\%ctotal}{%d\\xspace}\n" c (List.length found)
-    end;
   bin_by_primitive found
