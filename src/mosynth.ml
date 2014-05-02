@@ -71,8 +71,10 @@ let _ =
   ] in
   let all = instructions !arg_ops all in
   let init = MoInst.from_string_block (!arg_init) Init in
+  (* duplicate items table *)
+  let tbl = String.Table.create () ~size:1024 in
   let run f found block_size =
-    let blocks = MoGeneration.gen f init block_size all in
+    let blocks = MoGeneration.gen f init block_size all tbl in
     List.append found blocks
   in
   let f = 

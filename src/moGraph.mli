@@ -13,7 +13,7 @@ val check : ?save:(string option) -> ?model:(t option) -> t -> bool
 val is_decryptable : t -> bool
 val is_valid : t -> bool
 
-val eval : t -> string list
+val eval : t -> string
 
 (** [display_with_feh t] displays the graph using feh *)
 val display_with_feh : t -> unit

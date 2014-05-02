@@ -353,8 +353,8 @@ let eval t =
   let ord = function
     | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5
     | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9
-    | 'a' | 'A' -> 10 | 'b' | 'B' -> 11 | 'c' | 'C' -> 12 | 'd' | 'D' -> 13
-    | 'e' | 'E' -> 14 | 'f' | 'F' -> 15
+    | 'A' -> 10 | 'B' -> 11 | 'C' -> 12 | 'D' -> 13
+    | 'E' -> 14 | 'F' -> 15
     | _ -> failwith "Fatal: invalid character"
   in
   let xor s s' =
@@ -380,9 +380,14 @@ let eval t =
     | Dup ->
        String.copy (Stack.top_exn s) |> Stack.push s
     | Genrand ->
-       Stack.push s rnd
+       begin
+         Stack.push s rnd
+       end
     | Inc ->
        let str = Stack.pop_exn s in
+       (* We need this copy, because OCaml strings should not be modified in
+       place! *)
+       let str = String.copy str in
        let len = String.length str in
        begin
          try
@@ -403,14 +408,15 @@ let eval t =
     | Prf ->
        Cryptokit.hash_string h (Stack.pop_exn s |> ofhexstr)
        |> tohexstr
+       |> String.uppercase
        |> Stack.push s
     | Prp ->
        let r = String.create 16 in
        c#transform (Stack.pop_exn s |> ofhexstr) 0 r 0;
-       tohexstr r |> Stack.push s
+       tohexstr r |> String.uppercase |> Stack.push s
     | Xor ->
        xor (Stack.pop_exn s) (Stack.pop_exn s) |> Stack.push s
   in
   List.iter t.v visit;
   assert (Stack.length s = 0);
-  !out :: [!nextiv]
+  String.concat ~sep:" " (!out :: [!nextiv])
