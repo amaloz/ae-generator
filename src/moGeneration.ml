@@ -4,6 +4,7 @@ module MoInst = MoInstructions
 
 let exists tbl g =
   let r = MoGraph.eval g in
+  Log.infof "Result = %s" r;
   match Hashtbl.existsi tbl ~f:(fun ~key:k ~data:v -> v = r) with
   | true -> true
   | false ->

@@ -419,4 +419,5 @@ let eval t =
   in
   List.iter t.v visit;
   assert (Stack.length s = 0);
-  String.concat ~sep:" " (!out :: [!nextiv])
+  let l = List.sort String.compare (!out :: [!nextiv]) in
+  String.concat ~sep:" " l
