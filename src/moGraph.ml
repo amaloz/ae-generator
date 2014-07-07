@@ -42,17 +42,17 @@ let create init block =
        begin
          match i with
          | Swap ->
-            let x = Stack.pop_exn s in
-            let x' = Stack.pop_exn s in
-            Stack.push s x;
-            Stack.push s x'
+            let first = Stack.pop_exn s in
+            let second = Stack.pop_exn s in
+            Stack.push s first;
+            Stack.push s second
          | Twoswap ->
-            let x = Stack.pop_exn s in
-            let x' = Stack.pop_exn s in
-            let x'' = Stack.pop_exn s in
-            Stack.push s x;
-            Stack.push s x';
-            Stack.push s x''
+            let first = Stack.pop_exn s in
+            let second = Stack.pop_exn s in
+            let third = Stack.pop_exn s in
+            Stack.push s first;
+            Stack.push s second;
+            Stack.push s third
        end
   in
   List.iter init f;
