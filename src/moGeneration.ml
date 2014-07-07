@@ -4,8 +4,8 @@ module MoInst = MoInstructions
 
 (* Check if a mode, given as graph 'g', already exists in duplicate items table
 'tbl'. *)
-let exists tbl g =
-  let r = MoGraph.eval g in
+let exists tbl init block =
+  let r = MoStack.eval init block in
   Log.infof "Result = %s" r;
   match Hashtbl.existsi tbl ~f:(fun ~key:k ~data:v -> v = r) with
   | true -> true
@@ -30,7 +30,7 @@ let gen f ?(pruning=true) init depth insts tbl =
     if f g then
       begin
         Log.infof "It works!";
-        if exists tbl g then
+        if exists tbl init block then
           Log.infof "already exists..."
         else
           blocks := block :: !blocks

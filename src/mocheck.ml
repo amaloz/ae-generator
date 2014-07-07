@@ -51,7 +51,7 @@ let _ =
   in
 
   let eval init block =
-    let r = MoGraph.create init block |> MoGraph.eval in
+    let r = MoStack.eval init block in
     Printf.printf "Eval: %s\n%!" r;
   in
 
