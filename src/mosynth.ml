@@ -44,6 +44,7 @@ let _ =
   let arg_disable_pruning = ref false in
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
   let arg_ops = ref "" in
+  let arg_print_modes = ref false in
   let arg_valid_count = ref false in
 
   let arg_specs = [
@@ -56,6 +57,8 @@ let _ =
      "Count schemes which are valid modes");
     ("-decryptable-count", Arg.Set arg_decryptable_count,
      "Count scheme which are decryptable");
+    ("-print-modes", Arg.Set arg_print_modes,
+     "Print found modes to stdout");
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
@@ -152,8 +155,9 @@ let _ =
     in
     List.iter ["prf"; "prp"; "mixture"] primitive
   in
-  List.iter found (fun l ->
-                   Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
+  if !arg_print_modes then
+    List.iter found (fun l ->
+                     Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
   Printf.printf ": found modes: %d\n" (List.length found);
   bin_by_size found;
   bin_by_primitive found
