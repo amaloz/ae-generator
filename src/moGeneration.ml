@@ -2,6 +2,8 @@ open Core.Std
 open MoOps
 module MoInst = MoInstructions
 
+(* Check if a mode, given as graph 'g', already exists in duplicate items table
+'tbl'. *)
 let exists tbl g =
   let r = MoGraph.eval g in
   Log.infof "Result = %s" r;
@@ -15,6 +17,10 @@ let is_valid g = MoGraph.is_valid g
 let is_decryptable g = is_valid g && MoGraph.is_decryptable g
 let is_secure g = MoGraph.check g
 
+(* Generates modes satisfying input function 'f', using 'init' as the Init
+block, 'depth' as the number of elements in each mode, 'insts' as the
+instructions to use in generation, and 'tbl' as the duplicate items table.  The
+'pruning' flag either enables or disables pruning. *)
 let gen f ?(pruning=true) init depth insts tbl =
   let blocks = ref [] in
   let process init block =
@@ -46,5 +52,6 @@ let gen f ?(pruning=true) init depth insts tbl =
     | _ when depth > 0 ->
        List.iter insts (iter depth ninputs block)
   in
+  (* the '-1' is due to including the 'Start' instruction. *)
   List.iter insts (iter (depth - 1) 1 [Instruction Start]);
   !blocks
