@@ -52,10 +52,10 @@ let _ =
     ("-block-size", Arg.Set_int arg_block_size,
      "N  Number of instructions in the block to generate (default = "
      ^ (Int.to_string !arg_block_size) ^ ")");
-    ("-decryptable-count", Arg.Set arg_decryptable_count,
-     "Only calculate if the scheme is decryptable");
     ("-valid-count", Arg.Set arg_valid_count,
-     "Only calculate if the scheme is a valid mode");
+     "Count schemes which are valid modes");
+    ("-decryptable-count", Arg.Set arg_decryptable_count,
+     "Count scheme which are decryptable");
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
@@ -81,11 +81,11 @@ let _ =
                                   init block_size all tbl in
     List.append found blocks
   in
-  let f = 
-    if !arg_decryptable_count then
-      (run MoGeneration.is_decryptable)
-    else if !arg_valid_count then
+  let f =
+    if !arg_valid_count then
       (run MoGeneration.is_valid)
+    else if !arg_decryptable_count then
+      (run MoGeneration.is_decryptable)
     else
       (run MoGeneration.is_secure)
   in
