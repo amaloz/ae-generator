@@ -15,7 +15,7 @@ let is_valid g = MoGraph.is_valid g
 let is_decryptable g = is_valid g && MoGraph.is_decryptable g
 let is_secure g = MoGraph.check g
 
-let gen f init depth insts tbl =
+let gen f ?(pruning=true) init depth insts tbl =
   let blocks = ref [] in
   let process init block =
     Log.infof "Trying [%s] [%s]"
@@ -34,7 +34,7 @@ let gen f init depth insts tbl =
     let n = ninputs - (MoInst.n_in i) + (MoInst.n_out i) in
     if MoInst.n_in i <= ninputs
        && n >= 0
-       && not (MoStack.is_pruneable i block) then
+       && (not pruning || not (MoStack.is_pruneable i block)) then
       loop (depth - 1) n (i :: block)
   and loop depth ninputs block =
     match depth with

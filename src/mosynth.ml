@@ -41,6 +41,7 @@ let _ =
   let arg_block_size = ref 7 in
   let arg_decryptable_count = ref false in
   let arg_debug = ref 0 in
+  let arg_disable_pruning = ref false in
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
   let arg_ops = ref "" in
   let arg_valid_count = ref false in
@@ -61,6 +62,8 @@ let _ =
      "LIST  Sets ops in list to on (+) or off (-); e.g., \"-XOR\"");
     ("-debug", Arg.Set_int arg_debug,
      "N  Set debug level to N (0 ≤ N ≤ 4)");
+    ("-disable-pruning", Arg.Set arg_disable_pruning,
+     "Disable pruning");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
@@ -74,7 +77,8 @@ let _ =
   (* duplicate items table *)
   let tbl = String.Table.create () ~size:1024 in
   let run f found block_size =
-    let blocks = MoGeneration.gen f init block_size all tbl in
+    let blocks = MoGeneration.gen f ~pruning:(not !arg_disable_pruning)
+                                  init block_size all tbl in
     List.append found blocks
   in
   let f = 
