@@ -47,7 +47,7 @@ let _ =
 
   let arg_specs = [
     ("-all", Arg.Set arg_all,
-     "Run for all block sizes less than or equal to the size given by -num");
+     "Run for all block sizes less than or equal to the size given by -block-size");
     ("-block-size", Arg.Set_int arg_block_size,
      "N  Number of instructions in the block to generate (default = "
      ^ (Int.to_string !arg_block_size) ^ ")");
