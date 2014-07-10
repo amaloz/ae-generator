@@ -2,10 +2,6 @@ open Core.Std
 open MoOps
 module MoInst = MoInstructions
 
-let range n =
-  let rec f n = if n = 0 then [] else n :: (f (n - 1)) in
-  f n |> List.rev
-
 let instructions l all =
   let parse_ops all s =
     let loop lst s =
@@ -62,7 +58,7 @@ let _ =
     ("-init", Arg.Set_string arg_init,
      "INIT  Sets INIT to be the init block (default = " ^ !arg_init ^ ")");
     ("-ops", Arg.Set_string arg_ops,
-     "LIST  Sets ops in list to on (+) or off (-); e.g., \"-XOR\"");
+     "LIST  Sets ops in list to on (+) or off (-); e.g., \"-PRF,-INC\"");
     ("-debug", Arg.Set_int arg_debug,
      "N  Set debug level to N (0 ≤ N ≤ 4)");
     ("-disable-pruning", Arg.Set arg_disable_pruning,
@@ -71,7 +67,8 @@ let _ =
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
   MoUtils.debug_config !arg_debug;
-  
+
+  (* 'all' is a list of the instruction we are using *)
   let all = [
     "DUP"; "INC"; "M"; "NEXTIV"; "OUT"; "PRF"; "PRP"; "XOR"; "SWAP"; "2SWAP"
   ] in
@@ -94,70 +91,15 @@ let _ =
   in
   let found =
     if !arg_all then
-      let sizes = range !arg_block_size in
+      let sizes = List.range 1 (!arg_block_size + 1) in
       List.fold_left sizes ~init:[] ~f:f
     else
       f [] !arg_block_size
   in
 
-  let bin_by_size l =
-    let t = Int.Table.create () in
-    let block_length l =
-      let f acc = function
-        | Instruction _ -> acc + 1
-        | StackInstruction _ -> acc
-      in
-      List.fold_left l ~init:0 ~f:f
-    in
-    let f i =
-      let len = block_length i in
-      match Hashtbl.find t len with
-      | None -> Hashtbl.add_exn t ~key:len ~data:1
-      | Some cnt -> Hashtbl.replace t ~key:len ~data:(cnt + 1)
-    in
-    List.iter l f;
-    let modesize size =
-      let count =
-        match Hashtbl.find t size with
-        | None -> 0
-        | Some cnt -> cnt
-      in
-      Printf.printf ": # modes of size %d = %d\n%!" size count
-    in
-    List.iter (range !arg_block_size) modesize
-  in
-  let bin_by_primitive l =
-    let t = String.Table.create () in
-    let has_prf l = List.exists l (fun i -> i = Instruction Prf) in
-    let has_prp l = List.exists l (fun i -> i = Instruction Prp) in
-    let inc s =
-      match Hashtbl.find t s with
-      | None -> Hashtbl.add_exn t ~key:s ~data:1
-      | Some cnt -> Hashtbl.replace t ~key:s ~data:(cnt + 1)
-    in
-    let f i =
-      let prf = has_prf i in
-      let prp = has_prp i in
-      match prf, prp with
-      | true, true -> inc "mixture"
-      | true, false -> inc "prf"
-      | false, true -> inc "prp"
-      | false, false -> failwith "no prf/prp in valid mode?!"
-    in
-    List.iter l f;
-    let primitive s =
-      let count =
-        match Hashtbl.find t s with
-        | None -> 0
-        | Some cnt -> cnt
-      in
-      Printf.printf ": # modes of primitive %s = %d\n%!" s count
-    in
-    List.iter ["prf"; "prp"; "mixture"] primitive
-  in
   if !arg_print_modes then
-    List.iter found (fun l ->
-                     Printf.printf "%s\n%!" (MoInst.string_of_t_list l));
-  Printf.printf ": found modes: %d\n" (List.length found);
-  bin_by_size found;
-  bin_by_primitive found
+    MoInst.print_modes found !arg_block_size;
+  Printf.printf "# found modes: %d\n" (List.length found);
+  for i = 1 to !arg_block_size do
+    Printf.printf "# modes of length %d = %d\n%!" i (MoInst.count found i)
+  done

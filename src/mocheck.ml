@@ -2,6 +2,8 @@ open Core.Std
 open MoOps
 module MoInst = MoInstructions
 
+exception Success
+
 let _ =
   let usage_msg () = "Usage : " ^ Sys.argv.(0) ^ " [<args>]\n" in
 
@@ -12,7 +14,8 @@ let _ =
   let arg_eval = ref false in
   let arg_file = ref "" in
   let arg_save_smt = ref "" in
-  let arg_validate = ref false in
+  let arg_is_decryptable = ref false in
+  let arg_is_secure = ref false in
 
   let arg_specs = [
     ("-init", Arg.Set_string arg_init,
@@ -27,8 +30,10 @@ let _ =
      "FILE  Run against modes given in FILE");
     ("-save-smt", Arg.Set_string arg_save_smt,
      "FILE  Save SMT code created during validation to FILE");
-    ("-validate", Arg.Set arg_validate,
-     "Validate the given mode");
+    ("-is-decryptable", Arg.Set arg_is_decryptable,
+     "Check if input mode(s) is/are decryptable");
+    ("-is-secure", Arg.Set arg_is_secure,
+     "Check if input mode(s) is/are secure");
     ("-debug", Arg.Set_int arg_debug,
      "N  Sets debug level to N");
   ] in
@@ -36,11 +41,11 @@ let _ =
 
   MoUtils.debug_config !arg_debug;
 
-  if !arg_display = false && !arg_eval = false && !arg_validate = false
-  then begin
-    Printf.printf "one of -display, -eval, -validate must be set\n%!";
-    exit 1
-  end;
+  (* if !arg_display = false && !arg_eval = false && !arg_is_decryptable = false *)
+  (* then begin *)
+  (*   Printf.printf "one of -display, -eval, -validate must be set\n%!"; *)
+  (*   exit 1 *)
+  (* end; *)
 
   let file = match !arg_file with
     | "" -> None
@@ -55,23 +60,32 @@ let _ =
     Printf.printf "Eval: %s\n%!" r;
   in
 
-  let validate init block =
+  let is_decryptable init block =
+    let g = MoGraph.create init block in
+    if MoGeneration.is_decryptable g then
+      raise Success
+    else
+      raise (Failure "")
+  in
+
+  let is_secure init block =
     let g = MoGraph.create init block in
     let save = match !arg_save_smt with
       | "" -> None
       | s -> Some s in
     if MoGraph.check ~save:save g then
-      print_endline "success!"
+      raise Success
     else
-      raise (Failure "failure!")
+      raise (Failure "")
   in
 
   let run init block =
-    Printf.printf "Checking [%s] [%s]\n%!" init block;
+    Log.infof "Checking [%s] [%s]\n%!" init block;
     let f x phase = MoInst.from_string_block (String.of_string x) phase in
     let init = f init Init in
     let block = f block Block in
-    if !arg_validate then validate init block;
+    if !arg_is_decryptable then is_decryptable init block;
+    if !arg_is_secure then is_secure init block;
     if !arg_eval then eval init block;
     if !arg_display then display init block;
   in
@@ -79,36 +93,45 @@ let _ =
   match file with
   | None ->
      begin
-       try run !arg_init !arg_block
-       with Failure s -> print_endline s; exit 1
+       (try run !arg_init !arg_block with
+        | Success -> print_endline "success"
+        | Failure s -> print_endline "failure");
+       exit 1
      end
   | Some fn ->
+     let blocks = ref [] in
+     let maxsize = ref 0 in
      begin
        let parse line =
          if line = "" then ()
          else if String.contains ~pos:0 ~len:1 line '#' then ()
          else
-           let rec loop l l' phase =
-             match l with
-             | [] -> failwith "Fatal: should never get here!"
-             | s :: ss ->
-                if String.contains ~pos:0 ~len:(String.length s) s ']' then
-                  let s = String.filter ~f:(fun c -> c <> ']') s in
-                  ss, String.concat ~sep:" " (List.rev (s :: l'))
-                else if String.contains ~pos:0 ~len:1 s '[' then
-                  let s = String.filter ~f:(fun c -> c <> '[') s in
-                  loop ss (s :: l') phase
-                else
-                  loop ss (s :: l') phase
+           let a =
+             try String.index_exn line '(' with
+             | Not_found -> failwith "Fatal: invalid format"
            in
-           let l = String.split line ~on:' ' in
-           let l, init = loop l [] Init in
-           let _, block = loop l [] Block in
-           try run init block
-           with Failure s -> print_endline s; exit 1
+           let b =
+             try String.index_exn line ')' with
+             | Not_found -> failwith "Fatal: invalid format"
+           in
+           let block = String.sub line (a + 1) (b - 1) in
+           let size = (String.count block (fun c -> c = ' ')) + 1 in
+           if size > !maxsize then
+             maxsize := size;
+           try run !arg_init block with
+           | Success ->
+              let block = MoInst.from_string_block (String.of_string block) Block in
+              blocks := block :: !blocks
+           | Failure s -> ()
        in
        let ic = In_channel.create fn in
        let stream = Stream.from (fun _ -> In_channel.input_line ic) in
        Stream.iter parse stream;
-       In_channel.close ic
+       In_channel.close ic;
+       (* print out relevant info *)
+       MoInst.print_modes !blocks !maxsize;
+       Printf.printf "# found modes: %d\n" (List.length !blocks);
+       for i = 1 to !maxsize do
+         Printf.printf "# modes of size %d = %d\n%!" i (MoInst.count !blocks i)
+       done
      end

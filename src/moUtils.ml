@@ -22,4 +22,3 @@ let run_proc cmd =
   done;
   ignore (Unix.close_process_in chan);
   Buffer.contents buf
-

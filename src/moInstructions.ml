@@ -83,3 +83,24 @@ let from_string s phase =
 let from_string_block s phase =
   let f s = from_string s phase in
   List.map (String.split s ~on:' ') f
+
+let block_length l =
+  (* we do not count stack instructions as part of the block length *)
+  let f acc = function
+    | Instruction _ -> acc + 1
+    | StackInstruction _ -> acc
+  in
+  List.fold_left l ~init:0 ~f:f
+
+(* counts the number of modes of size 'size' in list 'found' *)
+let count found size =
+  List.count found (fun l -> block_length l = size)
+
+let print_modes found maxsize =
+  for i = 1 to maxsize do
+    Printf.printf "# modes of length %d:\n" i;
+    List.iter found (fun l ->
+                     if block_length l = i then
+                       Printf.printf "%s\n%!" (string_of_t_list l));
+  done;
+

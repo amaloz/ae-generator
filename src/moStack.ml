@@ -8,6 +8,8 @@ let is_valid block =
   && List.count block (eq Start) = 1
   && List.count block (eq Nextiv_block) = 1
   && List.count block (eq Genrand) = 0
+  (* && List.count block (eq Xor) = 1 *)
+  (* && List.count block (eq Dup) = 1 *)
   && List.exists block (eq Xor)
   && List.exists block (eq Dup)
   && (List.exists block (eq Prf) || List.exists block (eq Prp))
@@ -20,13 +22,13 @@ let is_pruneable i block =
     | Instruction i ->
        begin
          match i with
-         | Dup -> cmpi Dup
-         | Inc -> cmpi M || cmpi Inc || cmpi Prp
+         | Inc -> cmpi Inc || cmpi M || cmpi Prp || cmpi Prf
          | Out -> cmpi M || cmpi Inc
          | Nextiv_block -> cmpi M
-         | Prf | Prp -> false (* cmpi Prf || cmpi Prp *)
+         | Prf -> cmpi Prf
+         | Prp -> cmpi Prp
          | Xor -> cmpi Dup
-         | Genrand | M | Nextiv_init | Start -> false
+         | Dup | Genrand | M | Nextiv_init | Start -> false
        end
     | StackInstruction i ->
        begin
@@ -35,25 +37,26 @@ let is_pruneable i block =
          | Twoswap -> cmpsi Twoswap
        end
   in
-  let cmp_2prev i p p' =
-    let cmpi_p i = p = Instruction i in
-    let cmpi_p' i = p' = Instruction i in
-    match i with
-    | Instruction i ->
-       begin
-         match i with
-         | Out -> cmpi_p' M && (cmpi_p Prp || cmpi_p Dup)
-         | _ -> false
-       end
-    | StackInstruction i -> false
-  in
+  (* let cmp_2prev i p p' = *)
+  (*   let cmpi_p i = p = Instruction i in *)
+  (*   let cmpi_p' i = p' = Instruction i in *)
+  (*   match i with *)
+  (*   | Instruction i -> *)
+  (*      begin *)
+  (*        match i with *)
+  (*        | Out -> cmpi_p' M && (cmpi_p Prp || cmpi_p Dup) *)
+  (*        | _ -> false *)
+  (*      end *)
+  (*   | StackInstruction i -> false *)
+  (* in *)
   match block with
-  | hd :: hd' :: _ -> cmp_prev i hd || cmp_2prev i hd hd'
+  (* | hd :: hd' :: _ -> cmp_prev i hd || cmp_2prev i hd hd' *)
   | hd :: _ -> cmp_prev i hd
   | [] -> false
 
-let msg = ref ""
+let msgs = ref []
 let rnd = ref ""
+let key = ref ""
 let cipher = ref (new Cryptokit.Block.aes_encrypt "00000000000000000000000000000000")
 
 let eval init block =
@@ -73,37 +76,40 @@ let eval init block =
     | _ -> failwith "Fatal: invalid character"
   in
   let xor s s' =
-    assert (String.length s = String.length s');
-    let len = String.length s in
     let xor c c' = chr ((ord c) lxor (ord c')) in
-    let r = String.create len in
-    for i = 0 to len - 1 do
+    let r = String.create 32 in
+    for i = 0 to 32 - 1 do
       r.[i] <- xor s.[i] s'.[i]
     done;
     r
   in
   let init_random_strings () =
     Random.self_init ();
-    let len = 32 in
     let create () =
-      let s = String.create len in
-      for i = 0 to len - 1 do
+      let s = String.create 32 in
+      for i = 0 to 32 - 1 do
         s.[i] <- Random.int 16 |> chr
       done;
       s
     in
-    msg := create ();
+    let rec msglist n acc =
+      match n with
+      | 0 -> acc
+      | n when n > 0 -> msglist (n - 1) ((create ()) :: acc)
+      | _ -> raise (Invalid_argument "negative values not allowed")
+    in
+    msgs := msglist 10 [];
     rnd := create ();
-    let key = create () in
-    cipher := new Cryptokit.Block.aes_encrypt (ofhexstr key);
+    key := create ();
+    cipher := new Cryptokit.Block.aes_encrypt (ofhexstr !key);
   in
   let out = ref "" in
   let nextiv = ref "" in
-  if !msg = "" || !rnd = "" then
+  if !rnd = "" then
     init_random_strings ();
   let h = Cryptokit.Hash.md5 () in
   let s = Stack.create () in
-  let visit inst =
+  let visit msg inst =
     match inst with
     | Instruction i ->
        begin
@@ -114,22 +120,14 @@ let eval init block =
             Stack.push s !rnd
          | Inc ->
             let str = Stack.pop_exn s in
-            (* We need this copy, because OCaml strings should not be modified
-            in place! *)
-            let str = String.copy str in
-            let len = String.length str in
-            begin
-              try
-                str.[len-1] <- ord str.[len-1] |> (+) 1 |> chr
-              with _ ->
-                str.[len-1] <- '0'
-            end;
-            Stack.push s str
+            let last = String.sub str 24 8 in
+            let inc = int_of_string ("0x" ^ last) |> succ in
+            let last = Printf.sprintf "%08X" inc in
+            let newstr = (String.sub str 0 24) ^ last in
+            Stack.push s newstr
          | M ->
-            Stack.push s !msg
+            Stack.push s msg
          | Nextiv_init
-         | Start ->
-            ()
          | Nextiv_block ->
             nextiv := Stack.pop_exn s
          | Out ->
@@ -141,6 +139,8 @@ let eval init block =
             let r = String.create 16 in
             !cipher#transform (Stack.pop_exn s |> ofhexstr) 0 r 0;
             tohexstr r |> Stack.push s
+         | Start ->
+            ()
          | Xor ->
             xor (Stack.pop_exn s) (Stack.pop_exn s) |> Stack.push s
        end
@@ -161,7 +161,15 @@ let eval init block =
             Stack.push s third
        end
   in
-  List.iter init visit;
-  List.iter block visit;
-  assert (Stack.length s = 0);
-  String.concat ~sep:" " (!out :: [!nextiv])
+  List.iter init (visit "");
+  let rec run strings acc =
+    match strings with
+    | x :: xs ->
+       Stack.push s !nextiv;
+       List.iter block (visit x);
+       run xs (!out :: !nextiv :: acc)
+    | [] ->
+       acc
+  in
+  let l = run !msgs (!out :: [!nextiv]) in
+  String.concat ~sep:" " l
