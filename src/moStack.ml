@@ -8,8 +8,6 @@ let is_valid block =
   && List.count block (eq Start) = 1
   && List.count block (eq Nextiv_block) = 1
   && List.count block (eq Genrand) = 0
-  (* && List.count block (eq Xor) = 1 *)
-  (* && List.count block (eq Dup) = 1 *)
   && List.exists block (eq Xor)
   && List.exists block (eq Dup)
   && (List.exists block (eq Prf) || List.exists block (eq Prp))
@@ -37,20 +35,7 @@ let is_pruneable i block =
          | Twoswap -> cmpsi Twoswap
        end
   in
-  (* let cmp_2prev i p p' = *)
-  (*   let cmpi_p i = p = Instruction i in *)
-  (*   let cmpi_p' i = p' = Instruction i in *)
-  (*   match i with *)
-  (*   | Instruction i -> *)
-  (*      begin *)
-  (*        match i with *)
-  (*        | Out -> cmpi_p' M && (cmpi_p Prp || cmpi_p Dup) *)
-  (*        | _ -> false *)
-  (*      end *)
-  (*   | StackInstruction i -> false *)
-  (* in *)
   match block with
-  (* | hd :: hd' :: _ -> cmp_prev i hd || cmp_2prev i hd hd' *)
   | hd :: _ -> cmp_prev i hd
   | [] -> false
 
@@ -98,7 +83,7 @@ let eval init block =
       | n when n > 0 -> msglist (n - 1) ((create ()) :: acc)
       | _ -> raise (Invalid_argument "negative values not allowed")
     in
-    msgs := msglist 10 [];
+    msgs := msglist 20 [];
     rnd := create ();
     key := create ();
     cipher := new Cryptokit.Block.aes_encrypt (ofhexstr !key);

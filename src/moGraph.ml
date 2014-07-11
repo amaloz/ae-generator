@@ -143,7 +143,7 @@ let assign_families t =
   List.iter t.e f;
   t
 
-let validate ?(save=None) ?(model=None) t =
+let validate t =
   Log.infof "Validating graph...";
   let smt = MoSmt.create () in
   let f v =
@@ -151,13 +151,10 @@ let validate ?(save=None) ?(model=None) t =
     MoSmt.op smt (G.V.label v) in
   List.iter t.v f;
   MoSmt.finalize smt;
-  let fname = match save with
-    | Some fn -> fn
-    | None -> Filename.temp_file "z3" ".smt2" in
+  let fname = Filename.temp_file "z3" ".smt2" in
   MoSmt.write_to_file smt fname;
   let result = MoSmt.run fname in
-  if Option.is_none save then
-    Sys.remove fname;
+  Sys.remove fname;
   result
 
 type dir = Forward | Backward
@@ -307,15 +304,15 @@ let is_connected t =
 
 let has_right_nodes t =
   let prp_or_prf =
-    let prp = List.count t.v (fun v -> G.V.label v = Prp) in
-    let prf = List.count t.v (fun v -> G.V.label v = Prf) in
-    prp + prf <> 0
+    (List.exists t.v (fun v -> G.V.label v = Prp))
+    || (List.exists t.v (fun v -> G.V.label v = Prf))
   in
   let has inst num = List.count t.v (fun v -> G.V.label v = inst) = num in
   prp_or_prf
   && has M 1
   && has Start 1
   && has Out 2                  (* one in Init and Block each *)
+  && has Nextiv_init 1
   && has Nextiv_block 1
   && has Genrand 1              (* one in Init, none in Block *)
 
@@ -332,11 +329,7 @@ let is_start_location_valid t =
 
 let is_valid t = is_start_location_valid t && has_right_nodes t && is_connected t
 
-let check ?(save=None) ?(model=None) t =
-  if is_valid t && is_decryptable t then
-    try
-      let t = assign_families t in
-      validate ~save:save ~model:model t
-    with AssignFamiliesException -> false
-  else
-    false
+let is_secure t =
+  try
+    assign_families t |> validate
+  with AssignFamiliesException -> false

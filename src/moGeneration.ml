@@ -6,18 +6,12 @@ module MoInst = MoInstructions
 duplicate items table 'tbl'. *)
 let exists tbl init block =
   let r = MoStack.eval init block in
-  (* Printf.printf "[%s] [%s]\n" *)
-  (*             (MoInst.string_of_t_list init) (MoInst.string_of_t_list block); *)
-  (* Printf.printf "Result = %s\n" r; *)
+  Log.infof "Result = %s\n" r;
   match Hashtbl.existsi tbl ~f:(fun ~key:k ~data:v -> k = r) with
   | true -> true
   | false ->
      let _ = Hashtbl.add tbl ~key:r ~data:r in
      false
-
-let is_valid g = MoGraph.is_valid g
-let is_decryptable g = is_valid g && MoGraph.is_decryptable g
-let is_secure g = MoGraph.check g
 
 (* Generates modes satisfying input function 'f', using 'init' as the Init
 block, 'depth' as the number of elements in each mode, 'insts' as the

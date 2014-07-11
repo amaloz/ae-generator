@@ -99,8 +99,8 @@ let count found size =
 let print_modes found maxsize =
   for i = 1 to maxsize do
     Printf.printf "# modes of length %d:\n" i;
-    List.iter found (fun l ->
-                     if block_length l = i then
-                       Printf.printf "%s\n%!" (string_of_t_list l));
+    let l = List.filter found (fun block -> block_length block = i) in
+    let l = List.map l (fun block -> string_of_t_list block) in
+    let l = List.sort ~cmp:String.compare l in
+    List.iter l (fun block -> Printf.printf "%s\n" block);
   done;
-

@@ -83,11 +83,12 @@ let _ =
   in
   let f =
     if !arg_valid_count then
-      (run MoGeneration.is_valid)
+      run (fun g -> MoGraph.is_valid g)
     else if !arg_decryptable_count then
-      (run MoGeneration.is_decryptable)
+      run (fun g -> MoGraph.is_valid g && MoGraph.is_decryptable g)
     else
-      (run MoGeneration.is_secure)
+      run (fun g -> MoGraph.is_valid g && MoGraph.is_decryptable g
+                    && MoGraph.is_secure g)
   in
   let found =
     if !arg_all then
