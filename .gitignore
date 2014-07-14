@@ -1,4 +1,6 @@
 _build
+setup.data
+setup.log
 *.annot
 *.cmo
 *.cma
