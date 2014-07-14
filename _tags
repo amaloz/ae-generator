@@ -1,7 +1,0 @@
-true: package(core)
-true: package(str)
-true: package(cryptokit), package(ocamlgraph)
-true: package(sexplib.syntax)
-true: package(dolog)
-true: syntax(camlp4o)
-true: thread,debug

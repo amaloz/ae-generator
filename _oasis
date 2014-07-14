@@ -1,0 +1,29 @@
+OASISFormat: 0.4
+Name:        modes-generator
+Version:     1.0
+Synopsis:    Mode of operation generator
+Authors:     Alex J. Malozemoff
+License:     LGPL-2.1 with OCaml linking exception
+
+Executable mocheck
+  Path:       .
+  BuildTools: ocamlbuild
+  MainIs:     src/mocheck.ml
+  BuildDepends:
+    dolog,
+    cryptokit,
+    ocamlgraph,
+    core,
+    threads
+  
+Executable mosynth
+  Path:       .
+  BuildTools: ocamlbuild
+  MainIs:     src/mosynth.ml
+  BuildDepends:
+    dolog,
+    cryptokit,
+    ocamlgraph,
+    core,
+    threads
+  
