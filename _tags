@@ -1,0 +1,38 @@
+# OASIS_START
+# DO NOT EDIT (digest: 7c4586a86025e25822f914c07f7bd368)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
+# useless stuff for the build process
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Executable mocheck
+"src/mocheck.byte": pkg_core
+"src/mocheck.byte": pkg_cryptokit
+"src/mocheck.byte": pkg_dolog
+"src/mocheck.byte": pkg_ocamlgraph
+"src/mocheck.byte": pkg_threads
+# Executable mosynth
+"src/mosynth.byte": pkg_core
+"src/mosynth.byte": pkg_cryptokit
+"src/mosynth.byte": pkg_dolog
+"src/mosynth.byte": pkg_ocamlgraph
+"src/mosynth.byte": pkg_threads
+<*.ml{,i}>: pkg_core
+<*.ml{,i}>: pkg_cryptokit
+<*.ml{,i}>: pkg_dolog
+<*.ml{,i}>: pkg_ocamlgraph
+<*.ml{,i}>: pkg_threads
+<src/*.ml{,i}>: pkg_core
+<src/*.ml{,i}>: pkg_cryptokit
+<src/*.ml{,i}>: pkg_dolog
+<src/*.ml{,i}>: pkg_ocamlgraph
+<src/*.ml{,i}>: pkg_threads
+# OASIS_STOP
