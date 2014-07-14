@@ -6,7 +6,8 @@ To use, install the following OCaml packages:
 
 Then run:
 
-> ./build.sh
+> ocaml setup.ml -configure
+> ocaml setup.ml -build
 
 To reproduce the results from the paper, run the following:
 
