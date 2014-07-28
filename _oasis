@@ -15,10 +15,10 @@ Executable mocheck
   Path:           .
   BuildTools:     ocamlbuild
   MainIs:         src/mocheck.ml
-  CompiledObject: best
+  CompiledObject: byte
   
 Executable mosynth
   Path:           .
   BuildTools:     ocamlbuild
   MainIs:         src/mosynth.ml
-  CompiledObject: best
+  CompiledObject: byte

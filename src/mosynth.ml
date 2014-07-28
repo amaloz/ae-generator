@@ -102,5 +102,5 @@ let _ =
     MoInst.print_modes found !arg_block_size;
   Printf.printf "# found modes: %d\n" (List.length found);
   for i = 1 to !arg_block_size do
-    Printf.printf "# modes of length %d = %d\n%!" i (MoInst.count found i)
+    Printf.printf "# modes of size %d = %d\n%!" i (MoInst.count found i)
   done

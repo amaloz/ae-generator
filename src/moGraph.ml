@@ -14,9 +14,10 @@ let string_of_e e =
   let l = G.E.label e |> Int.Set.to_list in
   List.to_string Int.to_string l
 
-(* maintain separate vertex and edge orderings so we can correctly traverse in
-order *)
-type t = { g : G.t; v : G.V.t list; e : G.E.t list }
+(* Maintain separate vertex and edge orderings so we can correctly traverse in
+order. We also need a pointer to the out node in block, as this is needed in the
+decryptability check. *)
+type t = { g : G.t; v : G.V.t list; e : G.E.t list; out : G.V.t }
 
 let create init block =
   let s = Stack.create () in
@@ -57,7 +58,8 @@ let create init block =
   in
   List.iter init f;
   List.iter block f;
-  let t = { g = g; v = !vl; e = !el } in
+  let out = List.find_exn (List.rev !vl) ~f:(fun v -> G.V.label v = Out) in
+  let t = { g = g; v = !vl; e = !el; out = out } in
   t
 
 let display_with_feh t =
@@ -102,17 +104,12 @@ let assign_families t =
   in
   let parents e = G.E.src e |> G.pred_e t.g in
   let parent e = parents e |> List.hd_exn in
-  (* let are_parents_processed e = *)
-  (*   let f e = if Int.Set.length (G.E.label e) = 0 then raise Exit in *)
-  (*   try List.iter (parents e) f; true with Exit -> false *)
-  (* in *)
   let fam_cnt = ref 0 in
   let f e =
     let label = G.E.src e |> G.V.label in
     Log.debugf "  Hit edge %s -> %s"
                ((MoOps.Instruction label) |> MoInst.string_of_t)
                ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
-    (* assert (are_parents_processed e); *)
     match label with
     | Dup
     | Inc
@@ -163,15 +160,17 @@ let string_of_dir = function
   | Backward -> "Backward"
 
 let is_decryptable t =
+  (* find label 'label' in graph *)
   let find label =
     let f x y = if (G.V.label x) = label then x :: y else y in
     let l = G.fold_vertex f t.g [] in
     assert (List.length l = 1);
     List.hd_exn l
   in
-  let nextiv = find Nextiv_block in
-  let m = find M in
-  let rec loop cur prev dir reblock =
+  let nextiv_block = find Nextiv_block in
+  let nextiv_init = find Nextiv_init in
+  let out = t.out in
+  let rec loop cur prev dir want_out =
     Log.debugf "cur = %s | prev = %s | dir = %s"
                (MoInst.string_of_t (Instruction (G.V.label cur)))
                (MoInst.string_of_t (Instruction (G.V.label prev)))
@@ -185,7 +184,7 @@ let is_decryptable t =
     let continue cur dir =
       let l = next cur prev dir in
       match List.hd l with
-      | Some v -> loop v cur dir reblock
+      | Some v -> loop v cur dir want_out
       | None -> false
     in
     (* stop if we're in a cycle *)
@@ -199,14 +198,14 @@ let is_decryptable t =
              match dir with
              | Forward ->
                 let l = next cur prev dir in
-                List.exists l (fun v -> loop v cur dir reblock)
+                List.exists l (fun v -> loop v cur dir want_out)
              | Backward ->
                 begin
                   let n = List.hd (next cur prev Forward) in
                   let p = List.hd (next cur prev Backward) in
                   match n, p with
                   | Some n, Some p ->
-                     loop n cur Forward reblock || loop p cur Backward reblock
+                     loop n cur Forward want_out || loop p cur Backward want_out
                   | Some _, None -> failwith "Fatal: DUP hit with no parent?"
                   | None, Some _ ->
                      (* this case can happen if DUP connects directly to XOR, in
@@ -217,29 +216,33 @@ let is_decryptable t =
                   | None, None -> failwith "Fatal: DUP hit with no edges?"
                 end
            end
-        | Inc | M | Prp | Nextiv_init -> continue cur dir
+        | Inc | Prp -> continue cur dir
         | Genrand -> false
-        | Out -> true
+        | M -> not want_out
         | Nextiv_block ->
-           if reblock then
-             continue cur dir
-           else
-             false
-        | Start ->
            begin
-             if reblock then
-               continue cur dir
-             else
-               let r = continue cur dir in
-               (* clear marks before we traverse block again *)
-               G.Mark.clear t.g;
-               r && loop nextiv nextiv Backward true
+             match dir with
+             | Forward -> true
+             | Backward -> continue cur dir
            end
+        | Nextiv_init ->
+           begin
+             match dir with
+             | Forward -> failwith "Fatal: NEXTIV in init hit going forward?"
+             | Backward -> continue cur dir
+           end
+        | Out ->
+           begin
+             match dir with
+             | Forward -> want_out
+             | Backward -> continue cur dir
+           end
+        | Start -> true
         | Prf ->
            begin
              match dir with
-             | Forward -> false
-             | Backward -> continue cur dir
+             | Forward -> continue cur dir
+             | Backward -> false
            end
         | Xor ->
            begin
@@ -250,21 +253,28 @@ let is_decryptable t =
                   let v' = List.hd (next cur prev Backward) in
                   match v, v' with
                   | Some v, Some v' ->
-                     loop v cur Forward reblock && loop v' cur Backward reblock
+                     loop v cur Forward want_out
+                     || loop v' cur Backward want_out
                   | Some _, None -> false
                   | None, Some _ -> failwith "Fatal: XOR hit with no child?"
                   | None, None -> failwith "Fatal: XOR hit with no neighbors?"
                 end
              | Backward ->
                 let l = next cur prev Backward in
-                let f v = loop v cur Backward reblock in
-                List.length l = 2 && List.for_all l ~f:f
+                List.length l = 2
+                && List.for_all l ~f:(fun v -> loop v cur Backward want_out)
            end
       end
   in
-  (* reset graph marks before traversing *)
-  G.Mark.clear t.g;
-  let r = loop m m Forward false in
+  let startloop node dir want_out =
+    (* reset graph marks before traversing *)
+    G.Mark.clear t.g;
+    loop node node dir want_out
+  in
+  let r = startloop out Backward false
+          && startloop nextiv_init Backward true
+          && startloop nextiv_block Backward true
+  in
   if not r then
     Log.infof "Is not decryptable!";
   r

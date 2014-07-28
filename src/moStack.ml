@@ -23,8 +23,8 @@ let is_pruneable i block =
          | Inc -> cmpi Inc || cmpi M || cmpi Prp || cmpi Prf
          | Out -> cmpi M || cmpi Inc
          | Nextiv_block -> cmpi M
-         | Prf -> cmpi Prf
-         | Prp -> cmpi Prp
+         | Prf -> cmpi Prf || cmpi Prp
+         | Prp -> cmpi Prp || cmpi Prf
          | Xor -> cmpi Dup
          | Dup | Genrand | M | Nextiv_init | Start -> false
        end
