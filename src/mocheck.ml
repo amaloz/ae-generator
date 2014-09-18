@@ -3,6 +3,7 @@ open MoOps
 module MoInst = MoInstructions
 
 exception Success
+exception Failed
 
 let _ =
   let usage_msg () = "Usage : " ^ Sys.argv.(0) ^ " [<args>]\n" in
@@ -47,14 +48,14 @@ let _ =
     Printf.printf "%s\n%!" (MoStack.eval init block); in
   let is f init block =
     if f (MoGraph.create init block) then raise Success
-    else raise (Failure "") in
+    else raise Failed in
   let is_valid init block =
     is (fun g -> MoGraph.is_valid g) init block in
   let is_decryptable init block =
     is (fun g -> MoGraph.is_valid g && MoGraph.is_decryptable g) init block in
   let is_secure init block =
-    is (fun g -> MoGraph.is_valid g && MoGraph.is_decryptable g
-                 && MoGraph.is_secure g) init block in
+    is (fun g -> MoGraph.is_valid g && MoGraph.is_decryptable g &&
+                 MoGraph.is_secure g) init block in
 
   let to_insts str phase =
     MoInst.from_string_block (String.of_string str) phase
@@ -71,43 +72,42 @@ let _ =
   in
 
   match !arg_file with
-  | "" ->
-     begin
-       (try run !arg_init !arg_block with
-        | Success -> print_endline "yes"
-        | Failure _ -> print_endline "no");
-       exit 1
-     end
+  | "" -> begin
+      (try run !arg_init !arg_block with
+       | Success -> print_endline "yes"
+       | Failed -> print_endline "no");
+      exit 1
+    end
   | fn ->
-     let blocks = ref [] in
-     let maxsize = ref 0 in
-     let parse line =
-       if line = "" then ()
-       else if String.contains ~pos:0 ~len:1 line '#' then ()
-       else
-         let f c line =
-           try String.index_exn line c with
-           | Not_found -> failwith "Fatal: invalid format"
-         in
-         let a = f '(' line in
-         let b = f ')' line in
-         let block = String.sub line (a + 1) (b - 1) in
-         let size = (String.count block (fun c -> c = ' ')) + 1 in
-         if size > !maxsize then
-           maxsize := size;
-         try run !arg_init block with
-         | Success ->
-            let block = to_insts block Block in
-            blocks := block :: !blocks
-         | Failure _ -> ()
-     in
-     let ic = In_channel.create fn in
-     let stream = Stream.from (fun _ -> In_channel.input_line ic) in
-     Stream.iter parse stream;
-     In_channel.close ic;
-     (* print out relevant info *)
-     MoInst.print_modes !blocks !maxsize;
-     Printf.printf "# found modes: %d\n" (List.length !blocks);
-     for i = 1 to !maxsize do
-       Printf.printf "# modes of size %d = %d\n%!" i (MoInst.count !blocks i)
-     done
+    let blocks = ref [] in
+    let maxsize = ref 0 in
+    let parse line =
+      if line = "" then ()
+      else if String.contains ~pos:0 ~len:1 line '#' then ()
+      else
+        let f c line =
+          try String.index_exn line c with
+          | Not_found -> failwith "Fatal: invalid format"
+        in
+        let a = f '(' line in
+        let b = f ')' line in
+        let block = String.sub line (a + 1) (b - 1) in
+        let size = (String.count block (fun c -> c = ' ')) + 1 in
+        if size > !maxsize then
+          maxsize := size;
+        try run !arg_init block with
+        | Success ->
+          let block = to_insts block Block in
+          blocks := block :: !blocks
+        | Failed -> ()
+    in
+    let ic = In_channel.create fn in
+    let stream = Stream.from (fun _ -> In_channel.input_line ic) in
+    Stream.iter parse stream;
+    In_channel.close ic;
+    (* print out relevant info *)
+    MoInst.print_modes !blocks !maxsize;
+    Printf.printf "# found modes: %d\n" (List.length !blocks);
+    for i = 1 to !maxsize do
+      Printf.printf "# modes of size %d = %d\n%!" i (MoInst.count !blocks i)
+    done

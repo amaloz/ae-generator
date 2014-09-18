@@ -108,34 +108,27 @@ let assign_families t =
   let f e =
     let label = G.E.src e |> G.V.label in
     Log.debugf "  Hit edge %s -> %s"
-               ((MoOps.Instruction label) |> MoInst.string_of_t)
-               ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
+      ((MoOps.Instruction label) |> MoInst.string_of_t)
+      ((MoOps.Instruction (G.E.dst e |> G.V.label)) |> MoInst.string_of_t);
     match label with
-    | Dup
-    | Inc
-    | Nextiv_init ->
-       let e' = parent e in
-       replace_edge e (G.E.label e')
-    | Genrand
-    | M
-    | Prf
-    | Prp
-    | Start ->
-       let set = Int.Set.singleton !fam_cnt in
-       fam_cnt := !fam_cnt + 1;
-       replace_edge e set
+    | Dup | Inc | Nextiv_init ->
+      let e' = parent e in
+      replace_edge e (G.E.label e')
+    | Genrand | M | Prf | Prp | Start ->
+      let set = Int.Set.singleton !fam_cnt in
+      fam_cnt := !fam_cnt + 1;
+      replace_edge e set
     | Xor ->
-       let elist = parents e in
-       let l = List.hd_exn elist in
-       let r = List.last_exn elist in
-       let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
-       if Int.Set.length inter <> 0 then
-         raise AssignFamiliesException;
-       let fam = Int.Set.union (G.E.label l) (G.E.label r) in
-       replace_edge e fam
-    | Nextiv_block
-    | Out ->
-       failwith "should not reach here!"
+      let elist = parents e in
+      let l = List.hd_exn elist in
+      let r = List.last_exn elist in
+      let inter = Int.Set.inter (G.E.label l) (G.E.label r) in
+      if Int.Set.length inter <> 0 then
+        raise AssignFamiliesException;
+      let fam = Int.Set.union (G.E.label l) (G.E.label r) in
+      replace_edge e fam
+    | Nextiv_block | Out ->
+      failwith "should not reach here!"
   in
   List.iter t.e f;
   t
@@ -160,123 +153,121 @@ let string_of_dir = function
   | Backward -> "Backward"
 
 let is_decryptable t =
-  (* find label 'label' in graph *)
+  Log.debugf "Checking decryptability...";
+  let replace_edge e label =
+    G.remove_edge_e t.g e;
+    let e = G.E.create (G.E.src e) label (G.E.dst e) in
+    G.add_edge_e t.g e
+  in
+  let get_parent_edges v = G.pred_e t.g v in
+  let get_parent_edge v = get_parent_edges v |> List.hd_exn in
+  let get_child_edges v = G.succ_e t.g v in
+  let get_child_edge v = get_child_edges v |> List.hd_exn in
+  let get_parent_vertices v = G.pred t.g v in
+  let get_parent_vertex v = get_parent_vertices v |> List.hd_exn in
+  let get_child_vertices v = G.succ t.g v in
+  let get_child_vertex v = get_child_vertices v |> List.hd_exn in
+  let get_edges cur prev =
+    let l = List.append (G.succ_e t.g cur) (G.pred_e t.g cur) in
+    List.filter l ~f:(fun e -> ((G.E.src e = cur && G.E.dst e = prev) ||
+                                (G.E.src e = prev && G.E.dst e = cur)) |> not)
+  in
+  let get_edge cur prev =
+    let l = get_edges cur prev in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
+  let edge_to_item e cur prev =
+    let src = G.E.src e in
+    let dst = G.E.dst e in
+    if src = cur then
+      (dst, src, Forward)
+    else
+      (src, dst, Backward)
+  in
+  let set_edge e =
+    let set = Int.Set.singleton 1 in
+    replace_edge e set
+  in
+  let is_edge_set e =
+    Int.Set.compare (G.E.label e) Int.Set.empty <> 0
+  in
+  let step cur prev dir =
+    (* check if edge(s) already set; if so, ignore *)
+    if match G.V.label cur with
+      | Dup | Xor ->
+        let l = List.append (G.succ_e t.g cur) (G.pred_e t.g cur) in
+        List.for_all l ~f:is_edge_set
+      | _ ->
+        let l = (match dir with
+          | Forward -> get_child_edges
+          | Backward -> get_parent_edges) cur in
+        List.for_all l ~f:is_edge_set
+    then
+      []
+    else
+      match G.V.label cur with
+      | Dup ->
+        let l = get_edges cur prev in
+        List.iter l ~f:(fun e -> set_edge e);
+        List.map l ~f:(fun e -> edge_to_item e cur prev)
+      | M ->
+        assert (dir = Backward);
+        []
+      | Out ->
+        let _ = get_parent_edge cur |> set_edge in
+        [(get_parent_vertex cur, cur, Backward)]
+      | Prf -> begin
+        match dir with
+        | Forward -> [edge_to_item (get_edge cur prev) cur prev]
+        | Backward -> []
+        end
+      | Prp ->
+        [edge_to_item (get_edge cur prev) cur prev]
+      | Start ->
+        assert (dir = Forward);
+        let _ = get_child_edge cur |> set_edge in
+        [(get_child_vertex cur, cur, Forward)]
+      | Xor ->
+        let l = get_edges cur prev in
+        assert (List.length l = 2);
+        (* How many other edges are set?  If one, then we have enough info
+           to traverse down the unset edge. *)
+        if List.count l ~f:(fun e -> is_edge_set e) = 1 then
+          (* Find the unset edge *)
+          let e = List.find_exn l ~f:(fun e -> is_edge_set e |> not) in
+          set_edge e;
+          [edge_to_item e cur dir]
+        else
+          []
+      | _ -> failwith "Not implemented yet"
+  in
+  (* find label 'label' in graph t.g *)
   let find label =
     let f x y = if (G.V.label x) = label then x :: y else y in
     let l = G.fold_vertex f t.g [] in
     assert (List.length l = 1);
     List.hd_exn l
   in
-  let nextiv_block = find Nextiv_block in
-  let nextiv_init = find Nextiv_init in
+  let start = find Start in
+  let m = find M in
   let out = t.out in
-  let rec loop cur prev dir want_out =
-    Log.debugf "cur = %s | prev = %s | dir = %s"
-               (MoInst.string_of_t (Instruction (G.V.label cur)))
-               (MoInst.string_of_t (Instruction (G.V.label prev)))
-               (string_of_dir dir);
-    let next cur prev dir =
-      let l = match dir with
-        | Forward -> G.succ t.g cur
-        | Backward -> G.pred t.g cur in
-      List.filter l ~f:(fun v -> v <> prev)
+  let array = [(start, start, Forward); (out, out, Backward)] in
+  let rec run array =
+    let f l i =
+      let cur, prev, dir = i in
+      Log.debugf "  %s %s %s"
+        (MoInst.string_of_t (Instruction (G.V.label cur)))
+        (MoInst.string_of_t (Instruction (G.V.label prev)))
+        (string_of_dir dir);
+      List.append l (step cur prev dir)
     in
-    let continue cur dir =
-      let l = next cur prev dir in
-      match List.hd l with
-      | Some v -> loop v cur dir want_out
-      | None -> false
-    in
-    (* stop if we're in a cycle *)
-    if G.Mark.get cur <> 0 then false
-    else
-      begin
-        G.Mark.set cur 1;
-        match G.V.label cur with
-        | Dup ->
-           begin
-             match dir with
-             | Forward ->
-                let l = next cur prev dir in
-                List.exists l (fun v -> loop v cur dir want_out)
-             | Backward ->
-                begin
-                  let n = List.hd (next cur prev Forward) in
-                  let p = List.hd (next cur prev Backward) in
-                  match n, p with
-                  | Some n, Some p ->
-                     loop n cur Forward want_out || loop p cur Backward want_out
-                  | Some _, None -> failwith "Fatal: DUP hit with no parent?"
-                  | None, Some _ ->
-                     (* this case can happen if DUP connects directly to XOR, in
-                     which case we have *one* child, but as that child is the
-                     node we are coming from, the 'next' function returns
-                     nothing *)
-                     false
-                  | None, None -> failwith "Fatal: DUP hit with no edges?"
-                end
-           end
-        | Inc | Prp -> continue cur dir
-        | Genrand -> false
-        | M -> not want_out
-        | Nextiv_block ->
-           begin
-             match dir with
-             | Forward -> true
-             | Backward -> continue cur dir
-           end
-        | Nextiv_init ->
-           begin
-             match dir with
-             | Forward -> failwith "Fatal: NEXTIV in init hit going forward?"
-             | Backward -> continue cur dir
-           end
-        | Out ->
-           begin
-             match dir with
-             | Forward -> want_out
-             | Backward -> continue cur dir
-           end
-        | Start -> true
-        | Prf ->
-           begin
-             match dir with
-             | Forward -> continue cur dir
-             | Backward -> false
-           end
-        | Xor ->
-           begin
-             match dir with
-             | Forward ->
-                begin
-                  let v = List.hd (next cur prev Forward) in
-                  let v' = List.hd (next cur prev Backward) in
-                  match v, v' with
-                  | Some v, Some v' ->
-                     loop v cur Forward want_out
-                     || loop v' cur Backward want_out
-                  | Some _, None -> false
-                  | None, Some _ -> failwith "Fatal: XOR hit with no child?"
-                  | None, None -> failwith "Fatal: XOR hit with no neighbors?"
-                end
-             | Backward ->
-                let l = next cur prev Backward in
-                List.length l = 2
-                && List.for_all l ~f:(fun v -> loop v cur Backward want_out)
-           end
-      end
+    if List.is_empty array then ()
+    else run (List.fold_left array ~init:[] ~f:f)
   in
-  let startloop node dir want_out =
-    (* reset graph marks before traversing *)
-    G.Mark.clear t.g;
-    loop node node dir want_out
-  in
-  let r = startloop out Backward false
-          && startloop nextiv_init Backward true
-          && startloop nextiv_block Backward true
-  in
-  if not r then
-    Log.infof "Is not decryptable!";
+  let _ = run array in
+  let r = get_child_edge m |> is_edge_set in
+  Log.debugf "Result: %b" r;
   r
 
 exception Vertex of G.V.t
