@@ -15,9 +15,10 @@ let string_of_e e =
   List.to_string Int.to_string l
 
 (* Maintain separate vertex and edge orderings so we can correctly traverse in
-order. We also need a pointer to the out node in block, as this is needed in the
-decryptability check. *)
-type t = { g : G.t; v : G.V.t list; e : G.E.t list; out : G.V.t }
+   order. We also need pointers to the out node in init and block, as these are
+   needed in the decryptability check. *)
+type t = { g : G.t; v : G.V.t list; e : G.E.t list; out_init : G.V.t;
+           out_block : G.V.t }
 
 let create init block =
   let s = Stack.create () in
@@ -57,9 +58,11 @@ let create init block =
        end
   in
   List.iter init f;
+  let out_init = List.find_exn !vl ~f:(fun v -> G.V.label v = Out) in
   List.iter block f;
-  let out = List.find_exn (List.rev !vl) ~f:(fun v -> G.V.label v = Out) in
-  let t = { g = g; v = !vl; e = !el; out = out } in
+  let out_block = List.find_exn (List.rev !vl) ~f:(fun v -> G.V.label v = Out) in
+  let t = { g = g; v = !vl; e = !el; out_init = out_init;
+            out_block = out_block } in
   t
 
 let display_with_feh t =
@@ -152,6 +155,7 @@ let string_of_dir = function
   | Forward -> "Forward"
   | Backward -> "Backward"
 
+(* Checks whether a graph is decryptable *)
 let is_decryptable t =
   Log.debugf "Checking decryptability...";
   let replace_edge e label =
@@ -160,13 +164,30 @@ let is_decryptable t =
     G.add_edge_e t.g e
   in
   let get_parent_edges v = G.pred_e t.g v in
-  let get_parent_edge v = get_parent_edges v |> List.hd_exn in
+  let get_parent_edge v =
+    let l = get_parent_edges v in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
   let get_child_edges v = G.succ_e t.g v in
-  let get_child_edge v = get_child_edges v |> List.hd_exn in
+  let get_child_edge v =
+    let l = get_child_edges v in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
   let get_parent_vertices v = G.pred t.g v in
-  let get_parent_vertex v = get_parent_vertices v |> List.hd_exn in
+  let get_parent_vertex v =
+    let l = get_parent_vertices v in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
   let get_child_vertices v = G.succ t.g v in
-  let get_child_vertex v = get_child_vertices v |> List.hd_exn in
+  let get_child_vertex v =
+    let l = get_child_vertices v in
+    assert (List.length l = 1);
+    List.hd_exn l
+  in
+  (* Returns all edges touching 'cur' except the cur-prev edge *)
   let get_edges cur prev =
     let l = List.append (G.succ_e t.g cur) (G.pred_e t.g cur) in
     List.filter l ~f:(fun e -> ((G.E.src e = cur && G.E.dst e = prev) ||
@@ -198,10 +219,11 @@ let is_decryptable t =
       | Dup | Xor ->
         let l = List.append (G.succ_e t.g cur) (G.pred_e t.g cur) in
         List.for_all l ~f:is_edge_set
-      | _ ->
+      | Genrand | M | Nextiv_block | Nextiv_init | Out | Start -> false
+      | Inc | Prf | Prp ->
         let l = (match dir with
-          | Forward -> get_child_edges
-          | Backward -> get_parent_edges) cur in
+            | Forward -> get_child_edges
+            | Backward -> get_parent_edges) cur in
         List.for_all l ~f:is_edge_set
     then
       []
@@ -211,18 +233,21 @@ let is_decryptable t =
         let l = get_edges cur prev in
         List.iter l ~f:(fun e -> set_edge e);
         List.map l ~f:(fun e -> edge_to_item e cur prev)
-      | M ->
+      | Genrand | M ->
         assert (dir = Backward);
+        []
+      | Nextiv_block | Nextiv_init ->
+        assert (dir = Forward);
         []
       | Out ->
         let _ = get_parent_edge cur |> set_edge in
         [(get_parent_vertex cur, cur, Backward)]
       | Prf -> begin
-        match dir with
-        | Forward -> [edge_to_item (get_edge cur prev) cur prev]
-        | Backward -> []
+          match dir with
+          | Forward -> [edge_to_item (get_edge cur prev) cur prev]
+          | Backward -> []
         end
-      | Prp ->
+      | Inc | Prp ->
         [edge_to_item (get_edge cur prev) cur prev]
       | Start ->
         assert (dir = Forward);
@@ -240,7 +265,6 @@ let is_decryptable t =
           [edge_to_item e cur dir]
         else
           []
-      | _ -> failwith "Not implemented yet"
   in
   (* find label 'label' in graph t.g *)
   let find label =
@@ -251,8 +275,12 @@ let is_decryptable t =
   in
   let start = find Start in
   let m = find M in
-  let out = t.out in
-  let array = [(start, start, Forward); (out, out, Backward)] in
+  let nextiv_block = find Nextiv_block in
+  let nextiv_init = find Nextiv_init in
+  let out_block = t.out_block in
+  let out_init = t.out_init in
+  let block_array = [(start, start, Forward);
+                     (out_block, out_block, Backward)] in
   let rec run array =
     let f l i =
       let cur, prev, dir = i in
@@ -265,9 +293,24 @@ let is_decryptable t =
     if List.is_empty array then ()
     else run (List.fold_left array ~init:[] ~f:f)
   in
-  let _ = run array in
-  let r = get_child_edge m |> is_edge_set in
+  (* Clear info on edges *)
+  G.iter_edges_e (fun e -> replace_edge e Int.Set.empty) t.g;
+  run block_array;
+  let is_m_set = get_child_edge m |> is_edge_set in
+  Log.debugf "    Is M set? %b" is_m_set;
+  let r = if is_m_set then
+      let is_nextiv_block_set = get_parent_edge nextiv_block |> is_edge_set in
+      Log.debugf "    Is Nextiv_block set? %b" is_nextiv_block_set;
+      let init_array = [(out_init, out_init, Backward)] in
+      run init_array;
+      let is_nextiv_init_set = get_parent_edge nextiv_init |> is_edge_set in
+      Log.debugf "    Is Nextiv_init set? %b" is_nextiv_init_set;
+      is_nextiv_block_set && is_nextiv_init_set
+    else
+      false in
   Log.debugf "Result: %b" r;
+  (* Clear info on edges *)
+  G.iter_edges_e (fun e -> replace_edge e Int.Set.empty) t.g;
   r
 
 exception Vertex of G.V.t
