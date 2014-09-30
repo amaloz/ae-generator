@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: e0b8f6c779817a3e10c520dcb85a281e)
+# DO NOT EDIT (digest: 4d4ab6397f03361e3ffc7e1561bae195)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,25 +14,25 @@
 "_darcs": -traverse
 "_darcs": not_hygienic
 # Executable mocheck
-<src/mocheck.{native,byte}>: pkg_core
-<src/mocheck.{native,byte}>: pkg_cryptokit
-<src/mocheck.{native,byte}>: pkg_dolog
-<src/mocheck.{native,byte}>: pkg_ocamlgraph
-<src/mocheck.{native,byte}>: pkg_threads
+<src/mocheck.{native,byte}>: package(core)
+<src/mocheck.{native,byte}>: package(cryptokit)
+<src/mocheck.{native,byte}>: package(dolog)
+<src/mocheck.{native,byte}>: package(ocamlgraph)
+<src/mocheck.{native,byte}>: package(threads)
 # Executable mosynth
-<src/mosynth.{native,byte}>: pkg_core
-<src/mosynth.{native,byte}>: pkg_cryptokit
-<src/mosynth.{native,byte}>: pkg_dolog
-<src/mosynth.{native,byte}>: pkg_ocamlgraph
-<src/mosynth.{native,byte}>: pkg_threads
-<*.ml{,i}>: pkg_core
-<*.ml{,i}>: pkg_cryptokit
-<*.ml{,i}>: pkg_dolog
-<*.ml{,i}>: pkg_ocamlgraph
-<*.ml{,i}>: pkg_threads
-<src/*.ml{,i}>: pkg_core
-<src/*.ml{,i}>: pkg_cryptokit
-<src/*.ml{,i}>: pkg_dolog
-<src/*.ml{,i}>: pkg_ocamlgraph
-<src/*.ml{,i}>: pkg_threads
+<src/mosynth.{native,byte}>: package(core)
+<src/mosynth.{native,byte}>: package(cryptokit)
+<src/mosynth.{native,byte}>: package(dolog)
+<src/mosynth.{native,byte}>: package(ocamlgraph)
+<src/mosynth.{native,byte}>: package(threads)
+<*.ml{,i}>: package(core)
+<*.ml{,i}>: package(cryptokit)
+<*.ml{,i}>: package(dolog)
+<*.ml{,i}>: package(ocamlgraph)
+<*.ml{,i}>: package(threads)
+<src/*.ml{,i}>: package(core)
+<src/*.ml{,i}>: package(cryptokit)
+<src/*.ml{,i}>: package(dolog)
+<src/*.ml{,i}>: package(ocamlgraph)
+<src/*.ml{,i}>: package(threads)
 # OASIS_STOP

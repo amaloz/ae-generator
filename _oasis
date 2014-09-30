@@ -1,10 +1,22 @@
 OASISFormat: 0.4
-Name:        modes-generator
-Version:     1.0
-Synopsis:    Mode of operation generator
-Authors:     Alex J. Malozemoff
-License:     LGPL-2.1 with OCaml linking exception
-Homepage:    https://github.com/amaloz/modes-generator
+OCamlVersion: >= 4.02
+Name: modes-generator
+Version: 1.0
+Authors: Alex J. Malozemoff
+License: LGPL-2.1 with OCaml linking exception
+BuildTools: ocamlbuild
+Homepage: https://github.com/amaloz/modes-generator
+
+Synopsis: Mode of operation generator
+Description:
+  This program implements the mode of operation generator as detailed in:
+  "Automated Analysis and Synthesis of Block-Cipher Modes of Operation." Alex
+  J. Malozemoff, Jonathan Katz, and Matthew D. Green. IEEE Computer Security
+  Foundations Symposium, Vienna, Austria, July 19-22, 2014.
+
+AlphaFeatures: ocamlbuild_more_args
+XOCamlbuildExtraArgs: -cflags "-safe-string"
+
 BuildDepends: dolog,
               cryptokit,
               ocamlgraph,

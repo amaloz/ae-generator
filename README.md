@@ -6,16 +6,18 @@ To use, install the following OCaml packages:
 
 Then run:
 
+> (optional) oasis setup
+
 > ocaml setup.ml -configure
 
 > ocaml setup.ml -build
 
 To reproduce the results from the paper, run the following:
 
-> ./mosynth.native -all -block-size 10 -valid-count -print-modes > valid
+> ./mosynth.native -all -block-size 10 -valid-count
 
-> ./mocheck.native -file valid -is-decryptable > decryptable
+> ./mosynth.native -all -block-size 10 -decryptable-count
 
-> ./mocheck.native -file decryptable -is-secure > secure
+> ./mosynth.native -all -block-size 10
 
 Please e-mail "amaloz at cs dot umd dot edu" if you encounter any issues.

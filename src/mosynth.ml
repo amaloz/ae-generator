@@ -9,14 +9,14 @@ let instructions l all =
       let rest s = String.slice s 1 0 in
       match String.prefix s 1 with
       | "+" ->
-         let s = rest s in
-         if List.exists lst (fun x -> x = s) then
-           lst
-         else
-           s :: lst
+        let s = rest s in
+        if List.exists lst (fun x -> x = s) then
+          lst
+        else
+          s :: lst
       | "-" ->
-         let s = rest s in
-         List.filter lst (fun x -> x <> s)
+        let s = rest s in
+        List.filter lst (fun x -> x <> s)
       | _ -> failwith "Error: invalid format for -ops string"
     in
     let l = String.split s ~on:',' in
@@ -39,6 +39,7 @@ let _ =
   let arg_debug = ref 0 in
   let arg_disable_pruning = ref false in
   let arg_init = ref "GENRAND DUP OUT NEXTIV" in
+  let arg_keep_dups = ref false in
   let arg_ops = ref "" in
   let arg_print_modes = ref false in
   let arg_valid_count = ref false in
@@ -63,6 +64,8 @@ let _ =
      "N  Set debug level to N (0 ≤ N ≤ 4)");
     ("-disable-pruning", Arg.Set arg_disable_pruning,
      "Disable pruning");
+    ("-keep-dups", Arg.Set arg_keep_dups,
+     "Do not remove duplicate modes from found modes");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
@@ -77,8 +80,12 @@ let _ =
   (* duplicate items table *)
   let tbl = String.Table.create () ~size:1024 in
   let run f found block_size =
-    let blocks = MoGeneration.gen f ~pruning:(not !arg_disable_pruning)
-                                  init block_size all tbl in
+    let blocks =
+      MoGeneration.gen f
+        ~pruning:(not !arg_disable_pruning)
+        ~keep_dups:!arg_keep_dups
+        init block_size all tbl
+    in
     List.append found blocks
   in
   let f =

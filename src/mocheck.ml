@@ -17,6 +17,7 @@ let _ =
   let arg_is_valid = ref false in
   let arg_is_decryptable = ref false in
   let arg_is_secure = ref false in
+  let arg_remove_dups = ref false in
 
   let arg_specs = [
     ("-init", Arg.Set_string arg_init,
@@ -37,6 +38,8 @@ let _ =
      "Check if input mode(s) is/are secure");
     ("-debug", Arg.Set_int arg_debug,
      "N  Set debug level to N (0 ≤ N ≤ 4)");
+    ("-remove-dups", Arg.Set arg_remove_dups,
+     "Remove duplicate modes");
   ] in
   Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
 
@@ -81,6 +84,8 @@ let _ =
   | fn ->
     let blocks = ref [] in
     let maxsize = ref 0 in
+    (* duplicate items table *)
+    let tbl = String.Table.create () ~size:1024 in
     let parse line =
       if line = "" then ()
       else if String.contains ~pos:0 ~len:1 line '#' then ()
@@ -97,8 +102,16 @@ let _ =
           maxsize := size;
         try run !arg_init block with
         | Success ->
-          let block = to_insts block Block in
-          blocks := block :: !blocks
+          if MoGeneration.exists
+              ~keep_dups:(not !arg_remove_dups)
+              tbl
+              (to_insts !arg_init Init)
+              (to_insts block Block)
+          then
+            ()
+          else
+            let block = to_insts block Block in
+            blocks := block :: !blocks
         | Failed -> ()
     in
     let ic = In_channel.create fn in

@@ -35,25 +35,25 @@ let n_out = function
 
 let string_of_t = function
   | Instruction i ->
-     begin
-       match i with
-       | Dup -> "DUP"
-       | Genrand -> "GENRAND"
-       | Inc -> "INC"
-       | M -> "M"
-       | Nextiv_init | Nextiv_block -> "NEXTIV"
-       | Out -> "OUT"
-       | Prf -> "PRF"
-       | Prp -> "PRP"
-       | Start -> "START"
-       | Xor -> "XOR"
-     end
+    begin
+      match i with
+      | Dup -> "DUP"
+      | Genrand -> "GENRAND"
+      | Inc -> "INC"
+      | M -> "M"
+      | Nextiv_init | Nextiv_block -> "NEXTIV"
+      | Out -> "OUT"
+      | Prf -> "PRF"
+      | Prp -> "PRP"
+      | Start -> "START"
+      | Xor -> "XOR"
+    end
   | StackInstruction s ->
-     begin
-       match s with
-       | Swap -> "SWAP"
-       | Twoswap -> "2SWAP"
-     end
+    begin
+      match s with
+      | Swap -> "SWAP"
+      | Twoswap -> "2SWAP"
+    end
 
 let string_of_t_list l =
   List.to_string (fun x -> string_of_t x) l
@@ -65,11 +65,11 @@ let from_string s phase =
   | "INC" -> Instruction Inc
   | "M" -> Instruction M
   | "NEXTIV" ->
-     begin
-       match phase with
-       | Init -> Instruction Nextiv_init
-       | Block -> Instruction Nextiv_block
-     end
+    begin
+      match phase with
+      | Init -> Instruction Nextiv_init
+      | Block -> Instruction Nextiv_block
+    end
   | "OUT" -> Instruction Out
   | "PRF" -> Instruction Prf
   | "PRP" -> Instruction Prp

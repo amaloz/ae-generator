@@ -124,17 +124,17 @@ let nextiv t phase =
   begin
     match phase with
     | Init ->
-       Stack.push t.items v
+      Stack.push t.items v
     | Block ->
-       begin
-         Queue.enqueue t.code ("\
+      begin
+        Queue.enqueue t.code ("\
 (assert (<= "^t.start_vars.typ^" "^v.typ^"))
 (assert (= "^t.start_vars.flag_incd^" "^v.flag_incd^"))");
-         Queue.enqueue t.code (lt_bool t.start_vars.flag_inc v.flag_inc);
-         (* TODO: missing INCd here? *)
-         Queue.enqueue t.code (lt_bool t.start_vars.flag_out v.flag_out);
-         Queue.enqueue t.code (lt_bool t.start_vars.flag_prf v.flag_prf);
-       end
+        Queue.enqueue t.code (lt_bool t.start_vars.flag_inc v.flag_inc);
+        (* TODO: missing INCd here? *)
+        Queue.enqueue t.code (lt_bool t.start_vars.flag_out v.flag_out);
+        Queue.enqueue t.code (lt_bool t.start_vars.flag_prf v.flag_prf);
+      end
   end
 
 let out t =
