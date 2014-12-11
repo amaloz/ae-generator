@@ -16,7 +16,6 @@ let ocb = {
 let _ =
   let usage_msg () = "Usage : " ^ Sys.argv.(0) ^ " [<args>]\n" in
 
-  (* OCB mode *)
   let arg_mode = ref "" in
   let arg_decode = ref "" in
   let arg_tag = ref "" in
@@ -24,9 +23,7 @@ let _ =
   let arg_display = ref false in
   let arg_eval = ref false in
   let arg_file = ref "" in
-  let arg_is_valid = ref false in
-  let arg_is_decryptable = ref false in
-  let arg_is_secure = ref false in
+  let arg_check = ref false in
   let arg_remove_dups = ref false in
 
   let arg_specs = [
@@ -42,11 +39,7 @@ let _ =
      "Evaluate the given mode");
     ("-file", Arg.Set_string arg_file,
      "FILE  Run against modes given in FILE");
-    ("-is-valid", Arg.Set arg_is_valid,
-     "Check if input mode(s) is/are valid");
-    ("-is-decryptable", Arg.Set arg_is_decryptable,
-     "Check if input mode(s) is/are decryptable");
-    ("-is-secure", Arg.Set arg_is_secure,
+    ("-check", Arg.Set arg_check,
      "Check if input mode(s) is/are secure");
     ("-debug", Arg.Set_int arg_debug,
      "N  Set debug level to N (0 ≤ N ≤ 4)");
@@ -60,9 +53,15 @@ let _ =
     if !arg_mode <> "" then
       match String.uppercase !arg_mode with
       | "OCB" -> ocb
-      | _ -> failwith "Unknown mode"
+      | _ -> begin
+          Printf.printf "Error: Unknown mode '%s'\n" !arg_mode;
+          exit 1
+        end
     else if !arg_decode = "" || !arg_tag = "" then
-      failwith "Decode and tag algorithms must be given"
+      begin
+        Printf.printf "Error: One of decode/tag algorithms is empty";
+        exit 1
+      end
     else
       { decode_s = !arg_decode; tag_s = !arg_tag }
   in
@@ -71,7 +70,12 @@ let _ =
     AeGraph.display_with_feh mode.decode;
     AeGraph.display_with_feh mode.tag
   in
-  let is_secure mode =
+  let eval mode =
+    Printf.printf "Encode = %s\n" (AeGraph.eval mode.encode);
+    Printf.printf "Decode = %s\n" (AeGraph.eval mode.decode);
+    Printf.printf "Tag    = %s\n" (AeGraph.eval mode.tag)
+  in
+  let check mode =
     let f g = AeGraph.is_secure g in
     f mode.decode && f mode.tag
   in
@@ -86,11 +90,8 @@ let _ =
       let encode = AeGraph.derive_encode_graph decode in
       { encode = encode; decode = decode; tag = tag }
     in
-    if !arg_is_valid then failwith "not implemented yet";
-    if !arg_is_decryptable then failwith "not implemented yet";
-    if !arg_is_secure then
-      if is_secure mode then raise Success else raise Failure;
-    if !arg_eval then failwith "not implemented yet";
+    if !arg_check then if check mode then raise Success else raise Failure;
+    if !arg_eval then eval mode;
     if !arg_display then display mode;
   in
 
