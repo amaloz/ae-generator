@@ -296,8 +296,8 @@ let is_secure_decode t =
 
 let is_secure_tag t =
   check t [Bot; Bot] true t.checks
-  && check t [Rand; Zero] true t.checks
-  && check t [Rand; One] true t.checks
+  && check t [Rand; Zero] false t.checks
+  && check t [Rand; One] false t.checks
 
 let is_secure t =
   match t.phase with
