@@ -68,29 +68,20 @@ let create block phase =
         Stack.push s dst
       done;
       (* Construct list of starting locations *)
-      begin
-        match i with
-        | Ini | Msg -> starts := !starts @ [dst]
-        | _ -> ()
-      end;
+      if i = Ini || i = Msg then
+        starts := !starts @ [dst];
       (* Construct list of nodes to check *)
       begin
         match phase with
-        | Encode -> begin
-            match i with
-            | Out -> checks := dst :: !checks
-            | _ -> ()
-          end
-        | Decode -> begin
-            match i with
-            | Fin -> if List.is_empty !checks then checks := [dst]
-            | _ -> ()
-          end
-        | Tag -> begin
-            match i with
-            | Out -> if List.is_empty !checks then checks := [dst]
-            | _ -> ()
-          end
+        | Encode ->
+          if i = Out then
+            checks := dst :: !checks
+        | Decode ->
+          if i = Fin && List.is_empty !checks then
+            checks := [dst]
+        | Tag ->
+          if i = Out && List.is_empty !checks then
+            checks := [dst]
       end
     | StackInstruction i ->
       begin
