@@ -1,13 +1,9 @@
 open Core.Std
-open MoOps
-module MoInst = MoInstructions
+open AeOps
+open AeInst
 
 type labelvars = {
   typ : string;
-  flag_inc : string;
-  flag_incd : string;
-  flag_out : string;
-  flag_prf : string;
 }
 
 type t = {
@@ -21,37 +17,29 @@ let create () =
   let t = { ctr = 1;
             code = Queue.create ();
             items = Stack.create ();
-            start_vars = { typ = ""; flag_inc = ""; flag_incd = "";
-                           flag_out = ""; flag_prf = "" };
+            start_vars = { typ = "" };
           } in
   let init = "\
-(declare-const R Int)
-(declare-const U Int)
-(declare-const B Int)
-(assert (= R 2))
-(assert (= U 1))
-(assert (= B 0))" in
+(declare-const Zro Int)
+(declare-const One Int)
+(declare-const Bot Int)
+(declare-const Rnd Int)
+(assert (= Zro 0))
+(assert (= One 1))
+(assert (= Bot 2))
+(assert (= Rnd 3))" in
   Queue.enqueue t.code init;
   t
 
 let create_vars t fn =
   let f s = s ^ "_" ^ fn ^ "_" ^ (string_of_int t.ctr) in
   let typ = f "var" in
-  let flag_inc = f "flag_inc" in
-  let flag_incd = f "flag_incd" in
-  let flag_out = f "flag_out" in
-  let flag_prf = f "flag_prf" in
-  let r = { typ = typ; flag_inc = flag_inc; flag_incd = flag_incd;
-            flag_out = flag_out; flag_prf = flag_prf } in
+  let r = { typ = typ } in
   t.ctr <- t.ctr + 1;
   r
 
 let declare_consts x = "\
-(declare-const "^x.typ^" Int)
-(declare-const "^x.flag_inc^" Bool)
-(declare-const "^x.flag_incd^" Bool)
-(declare-const "^x.flag_out^" Bool)
-(declare-const "^x.flag_prf^" Bool)"
+(declare-const "^x.typ^" Int)"
 
 let dup t =
   let l = create_vars t "dup_l" in
@@ -61,39 +49,9 @@ let dup t =
 ;; DUP
 "^(declare_consts l)^"
 "^(declare_consts r)^"
-(assert (= "^l.typ^" "^r.typ^" "^x.typ^"))
-(assert (= (and "^l.flag_inc^" "^r.flag_inc^") false))
-(assert (= (and "^l.flag_out^" "^r.flag_out^") false))
-(assert (= (and "^l.flag_prf^" "^r.flag_prf^") false))
-(assert (= (or "^l.flag_inc^" "^r.flag_inc^") "^x.flag_inc^"))
-(assert (= (or "^l.flag_out^" "^r.flag_out^") "^x.flag_out^"))
-(assert (= (or "^l.flag_prf^" "^r.flag_prf^") "^x.flag_prf^"))
-(assert (= "^l.flag_incd^" "^r.flag_incd^" "^x.flag_incd^"))");
+(assert (= "^l.typ^" "^r.typ^" "^x.typ^"))");
   Stack.push t.items r;
   Stack.push t.items l
-
-let genrand t =
-  let v = create_vars t "genrand" in
-  Queue.enqueue t.code ("\
-;; GENRAND
-"^(declare_consts v)^"
-(assert (= "^v.typ^" R))
-(assert (= "^v.flag_prf^" "^v.flag_out^" true))
-(assert (= "^v.flag_inc^" "^v.flag_incd^"))");
-  Stack.push t.items v
-
-let inc t =
-  let v = create_vars t "inc" in
-  let x = Stack.pop_exn t.items in
-  Queue.enqueue t.code ("\
-;; INC
-(assert (or (= "^x.typ^" R) (= "^x.typ^" U)))
-(assert (= "^x.flag_inc^" true))
-"^(declare_consts v)^"
-(assert (= "^v.typ^" U))
-(assert (= "^v.flag_inc^" "^v.flag_incd^" "^v.flag_prf^" true))
-(assert (= "^v.flag_out^" false)) ");
-  Stack.push t.items v
 
 let msg t =
   let v = create_vars t "m" in
@@ -241,7 +199,7 @@ let write_to_file t f =
 (*   MoGraph.display_model_with_feh g l *)
 
 let run fname =
-  let s = MoUtils.run_proc ("z3 " ^ fname) in
+  let s = Utils.run_proc ("z3 " ^ fname) in
   match List.hd_exn (String.split s ~on:'\n') with
   | "sat" -> true
   | "unsat" -> false

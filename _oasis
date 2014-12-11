@@ -1,18 +1,14 @@
 OASISFormat: 0.4
 OCamlVersion: >= 4.02
-Name: modes-generator
+Name: ae-generator
 Version: 1.0
 Authors: Alex J. Malozemoff
 License: LGPL-2.1 with OCaml linking exception
 BuildTools: ocamlbuild
-Homepage: https://github.com/amaloz/modes-generator
+Homepage: https://github.com/amaloz/ae-generator
 
-Synopsis: Mode of operation generator
+Synopsis: Authenticated encryption scheme generator
 Description:
-  This program implements the mode of operation generator as detailed in:
-  "Automated Analysis and Synthesis of Block-Cipher Modes of Operation." Alex
-  J. Malozemoff, Jonathan Katz, and Matthew D. Green. IEEE Computer Security
-  Foundations Symposium, Vienna, Austria, July 19-22, 2014.
 
 AlphaFeatures: ocamlbuild_more_args
 XOCamlbuildExtraArgs: -cflags "-safe-string"
@@ -26,11 +22,5 @@ BuildDepends: dolog,
 Executable mocheck
   Path:           .
   BuildTools:     ocamlbuild
-  MainIs:         src/mocheck.ml
-  CompiledObject: best
-  
-Executable mosynth
-  Path:           .
-  BuildTools:     ocamlbuild
-  MainIs:         src/mosynth.ml
+  MainIs:         src/aecheck.ml
   CompiledObject: best

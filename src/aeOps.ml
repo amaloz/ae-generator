@@ -1,18 +1,16 @@
-
-type phase = Init | Block
+type phase =
+  | Encode
+  | Decode
+  | Tag
 
 type instruction =
-  | Dup
-  | Genrand
-  | Inc
-  | M
-  | Nextiv_init
-  | Nextiv_block
+  | Msg
+  | Ini
+  | Fin
   | Out
-  | Prf
-  | Prp
-  | Start
+  | Dup
   | Xor
+  | Tbc
 
 type stackInstruction =
   | Swap

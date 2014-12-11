@@ -1,35 +1,27 @@
 open Core.Std
-open MoOps
+open AeOps
 
 type t = operations
 
 let n_in = function
-  | Instruction Dup -> 1
-  | Instruction Genrand -> 0
-  | Instruction Inc -> 1
-  | Instruction M -> 0
-  | Instruction Nextiv_init -> 1
-  | Instruction Nextiv_block -> 1
+  | Instruction Msg -> 0
+  | Instruction Ini -> 0
+  | Instruction Fin -> 1
   | Instruction Out -> 1
-  | Instruction Prf -> 1
-  | Instruction Prp -> 1
-  | Instruction Start -> 1
+  | Instruction Dup -> 1
   | Instruction Xor -> 2
+  | Instruction Tbc -> 1
   | StackInstruction Swap -> 2
   | StackInstruction Twoswap -> 3
 
 let n_out = function
-  | Instruction Dup -> 2
-  | Instruction Genrand -> 1
-  | Instruction Inc -> 1
-  | Instruction M -> 1
-  | Instruction Nextiv_init -> 1
-  | Instruction Nextiv_block -> 0
+  | Instruction Msg -> 1
+  | Instruction Ini -> 1
+  | Instruction Fin -> 0
   | Instruction Out -> 0
-  | Instruction Prf -> 1
-  | Instruction Prp -> 1
-  | Instruction Start -> 1
+  | Instruction Dup -> 2
   | Instruction Xor -> 1
+  | Instruction Tbc -> 1
   | StackInstruction Swap -> 2
   | StackInstruction Twoswap -> 3
 
@@ -37,16 +29,13 @@ let string_of_t = function
   | Instruction i ->
     begin
       match i with
-      | Dup -> "DUP"
-      | Genrand -> "GENRAND"
-      | Inc -> "INC"
-      | M -> "M"
-      | Nextiv_init | Nextiv_block -> "NEXTIV"
+      | Msg -> "MSG"
+      | Ini -> "INI"
+      | Fin -> "FIN"
       | Out -> "OUT"
-      | Prf -> "PRF"
-      | Prp -> "PRP"
-      | Start -> "START"
+      | Dup -> "DUP"
       | Xor -> "XOR"
+      | Tbc -> "TBC"
     end
   | StackInstruction s ->
     begin
@@ -60,21 +49,13 @@ let string_of_t_list l =
 
 let from_string s phase =
   match String.uppercase s with
-  | "DUP" -> Instruction Dup
-  | "GENRAND" -> Instruction Genrand
-  | "INC" -> Instruction Inc
-  | "M" -> Instruction M
-  | "NEXTIV" ->
-    begin
-      match phase with
-      | Init -> Instruction Nextiv_init
-      | Block -> Instruction Nextiv_block
-    end
+  | "MSG" -> Instruction Msg
+  | "INI" -> Instruction Ini
+  | "FIN" -> Instruction Fin
   | "OUT" -> Instruction Out
-  | "PRF" -> Instruction Prf
-  | "PRP" -> Instruction Prp
-  | "START" -> Instruction Start
+  | "DUP" -> Instruction Dup
   | "XOR" -> Instruction Xor
+  | "TBC" -> Instruction Tbc
   | "SWAP" -> StackInstruction Swap
   | "2SWAP" -> StackInstruction Twoswap
   | "" -> failwith "Failure: no instruction given"
@@ -103,4 +84,4 @@ let print_modes found maxsize =
     let l = List.map l (fun block -> string_of_t_list block) in
     let l = List.sort ~cmp:String.compare l in
     List.iter l (fun block -> Printf.printf "%s\n" block);
-  done;
+  done

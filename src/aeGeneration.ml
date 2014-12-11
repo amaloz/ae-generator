@@ -1,6 +1,6 @@
 open Core.Std
-open MoOps
-module MoInst = MoInstructions
+open AeOps
+open AeInst
 
 (* Check if a mode, given as lists 'init' and 'block', already exists in
    duplicate items table 'tbl'. *)

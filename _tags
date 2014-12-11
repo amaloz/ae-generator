@@ -1,8 +1,9 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4d4ab6397f03361e3ffc7e1561bae195)
+# DO NOT EDIT (digest: c15ea69638b50bd514f59b74879b76fb)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
+true: annot, bin_annot
 <**/.svn>: -traverse
 <**/.svn>: not_hygienic
 ".bzr": -traverse
@@ -14,25 +15,19 @@
 "_darcs": -traverse
 "_darcs": not_hygienic
 # Executable mocheck
-<src/mocheck.{native,byte}>: package(core)
-<src/mocheck.{native,byte}>: package(cryptokit)
-<src/mocheck.{native,byte}>: package(dolog)
-<src/mocheck.{native,byte}>: package(ocamlgraph)
-<src/mocheck.{native,byte}>: package(threads)
-# Executable mosynth
-<src/mosynth.{native,byte}>: package(core)
-<src/mosynth.{native,byte}>: package(cryptokit)
-<src/mosynth.{native,byte}>: package(dolog)
-<src/mosynth.{native,byte}>: package(ocamlgraph)
-<src/mosynth.{native,byte}>: package(threads)
-<*.ml{,i}>: package(core)
-<*.ml{,i}>: package(cryptokit)
-<*.ml{,i}>: package(dolog)
-<*.ml{,i}>: package(ocamlgraph)
-<*.ml{,i}>: package(threads)
-<src/*.ml{,i}>: package(core)
-<src/*.ml{,i}>: package(cryptokit)
-<src/*.ml{,i}>: package(dolog)
-<src/*.ml{,i}>: package(ocamlgraph)
-<src/*.ml{,i}>: package(threads)
+<src/aecheck.{native,byte}>: package(core)
+<src/aecheck.{native,byte}>: package(cryptokit)
+<src/aecheck.{native,byte}>: package(dolog)
+<src/aecheck.{native,byte}>: package(ocamlgraph)
+<src/aecheck.{native,byte}>: package(threads)
+<*.ml{,i,y}>: package(core)
+<*.ml{,i,y}>: package(cryptokit)
+<*.ml{,i,y}>: package(dolog)
+<*.ml{,i,y}>: package(ocamlgraph)
+<*.ml{,i,y}>: package(threads)
+<src/*.ml{,i,y}>: package(core)
+<src/*.ml{,i,y}>: package(cryptokit)
+<src/*.ml{,i,y}>: package(dolog)
+<src/*.ml{,i,y}>: package(ocamlgraph)
+<src/*.ml{,i,y}>: package(threads)
 # OASIS_STOP
