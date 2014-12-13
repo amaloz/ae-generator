@@ -1,9 +1,5 @@
 open Core.Std
 open AeOps
-open AeInst
-
-exception Success
-exception Failure
 
 type mode_s = { decode_s : string; tag_s : string }
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
@@ -66,42 +62,38 @@ let _ =
       { decode_s = !arg_decode; tag_s = !arg_tag }
   in
 
-  let display mode =
-    AeGraph.display_with_feh mode.decode;
-    AeGraph.display_with_feh mode.tag
-  in
-  let eval mode =
-    Printf.printf "Encode = %s\n" (AeGraph.eval mode.encode);
-    Printf.printf "Decode = %s\n" (AeGraph.eval mode.decode);
-    Printf.printf "Tag    = %s\n" (AeGraph.eval mode.tag)
-  in
-  let check mode =
-    let f g = AeGraph.is_secure g in
-    f mode.decode && f mode.tag
+  let str_to_mode mode =
+    (* TODO: do some validity checks of decode and tag *)
+    let f str phase = AeInst.from_string_block (String.of_string str) phase in
+    let decode = AeGraph.create (f mode.decode_s Decode) Decode in
+    let tag = AeGraph.create (f mode.tag_s Tag) Tag in
+    let encode = AeGraph.derive_encode_graph decode in
+    { encode = encode; decode = decode; tag = tag }
   in
 
   let run mode =
     Log.infof "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
-    let mode =
-      (* TODO: do some validity checks of decode and tag *)
-      let f str phase = AeInst.from_string_block (String.of_string str) phase in
-      let decode = AeGraph.create (f mode.decode_s Decode) Decode in
-      let tag = AeGraph.create (f mode.tag_s Tag) Tag in
-      let encode = AeGraph.derive_encode_graph decode in
-      { encode = encode; decode = decode; tag = tag }
+    let mode = str_to_mode mode in
+    let display mode =
+      AeGraph.display_with_feh mode.decode;
+      AeGraph.display_with_feh mode.tag
     in
-    if !arg_check then if check mode then raise Success else raise Failure;
+    let eval mode =
+      Printf.printf "Encode = %s\n" (AeGraph.eval mode.encode);
+      Printf.printf "Decode = %s\n" (AeGraph.eval mode.decode);
+      Printf.printf "Tag    = %s\n" (AeGraph.eval mode.tag)
+    in
+    let check mode =
+      let f g = AeGraph.is_secure g in
+      f mode.decode && f mode.tag
+    in
+    if !arg_check then print_endline (if check mode then "yes" else "no");
     if !arg_eval then eval mode;
     if !arg_display then display mode;
   in
 
   match !arg_file with
-  | "" -> begin
-      (try run mode with
-       | Success -> print_endline "yes"
-       | Failure -> print_endline "no");
-      exit 1
-    end
+  | "" -> run mode
   | _ -> failwith "not implemented yet"
   (* | fn -> *)
   (*   let blocks = ref [] in *)

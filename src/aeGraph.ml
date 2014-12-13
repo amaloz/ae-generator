@@ -1,6 +1,5 @@
 open Core.Std
 open AeOps
-open AeInst
 
 type typ =
   | Zero
