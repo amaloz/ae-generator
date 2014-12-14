@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: c15ea69638b50bd514f59b74879b76fb)
+# DO NOT EDIT (digest: f75a6038a1327f6d6f056cac5895974d)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,12 +14,12 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
-# Executable mocheck
-<src/aecheck.{native,byte}>: package(core)
-<src/aecheck.{native,byte}>: package(cryptokit)
-<src/aecheck.{native,byte}>: package(dolog)
-<src/aecheck.{native,byte}>: package(ocamlgraph)
-<src/aecheck.{native,byte}>: package(threads)
+# Executable aegenerator
+<src/main.{native,byte}>: package(core)
+<src/main.{native,byte}>: package(cryptokit)
+<src/main.{native,byte}>: package(dolog)
+<src/main.{native,byte}>: package(ocamlgraph)
+<src/main.{native,byte}>: package(threads)
 <*.ml{,i,y}>: package(core)
 <*.ml{,i,y}>: package(cryptokit)
 <*.ml{,i,y}>: package(dolog)

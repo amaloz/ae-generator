@@ -1,6 +1,8 @@
 open Core.Std
 open AeOps
 
+let version = "0.1"
+
 type mode_s = { decode_s : string; tag_s : string }
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
@@ -9,59 +11,42 @@ let ocb = {
   tag_s = "INI INI SWAP TBC OUT"
 }
 
-let _ =
-  let usage_msg () = "Usage : " ^ Sys.argv.(0) ^ " [<args>]\n" in
+let modes = "OCB"
 
-  let arg_mode = ref "" in
-  let arg_decode = ref "" in
-  let arg_tag = ref "" in
-  let arg_debug = ref 0 in
-  let arg_display = ref false in
-  let arg_eval = ref false in
-  let arg_file = ref "" in
-  let arg_check = ref false in
-  let arg_remove_dups = ref false in
+let spec_check =
+  let open Command.Spec in
+  empty
+  +> flag "-mode" (optional string)
+    ~doc:(sprintf "M Load mode M (Available modes: %s)" modes)
+  +> flag "-decode" (optional string) ~doc:"A Sets A to be the decode block"
+  +> flag "-tag" (optional string) ~doc:"A Sets A to be the tag block"
+  +> flag "-check" no_arg ~doc:"Check if mode is secure"
+  +> flag "-display" no_arg ~doc:"Display mode as a graph (needs 'dot' and 'feh')"
+  +> flag "-eval" no_arg ~doc:"Evaluate the given mode"
+  +> flag "-file" (optional string) ~doc:"F Run against modes given in F"
+  +> flag "-debug" (optional_with_default 0 int) ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
 
-  let arg_specs = [
-    ("-mode", Arg.Set_string arg_mode,
-     "M  Load mode M");
-    ("-decode", Arg.Set_string arg_decode,
-     "A  Sets A to be the decode block");
-    ("-tag", Arg.Set_string arg_tag,
-     "A  Sets A to be the tag block");
-    ("-display", Arg.Set arg_display,
-     "Display mode as a graph (need 'dot' and 'feh')");
-    ("-eval", Arg.Set arg_eval,
-     "Evaluate the given mode");
-    ("-file", Arg.Set_string arg_file,
-     "FILE  Run against modes given in FILE");
-    ("-check", Arg.Set arg_check,
-     "Check if input mode(s) is/are secure");
-    ("-debug", Arg.Set_int arg_debug,
-     "N  Set debug level to N (0 ≤ N ≤ 4)");
-    ("-remove-dups", Arg.Set arg_remove_dups,
-     "Remove duplicate modes");
-  ] in
-  Arg.parse arg_specs (fun _ -> ()) (usage_msg ());
-  Utils.debug_config !arg_debug;
+let run_check mode decode tag check display eval file debug () =
+  Utils.debug_config debug;
 
   let mode =
-    if !arg_mode <> "" then
-      match String.uppercase !arg_mode with
-      | "OCB" -> ocb
-      | _ -> begin
-          Printf.printf "Error: Unknown mode '%s'\n" !arg_mode;
+    match mode with
+    | Some mode -> begin
+        match String.uppercase mode with
+        | "OCB" -> ocb
+        | _ ->
+          printf "Error: Unknown mode '%s'\n" mode;
           exit 1
-        end
-    else if !arg_decode = "" || !arg_tag = "" then
-      begin
-        Printf.printf "Error: One of decode/tag algorithms is empty";
-        exit 1
       end
-    else
-      { decode_s = !arg_decode; tag_s = !arg_tag }
+    | None -> begin
+        match decode, tag with
+        | Some decode, Some tag ->
+          { decode_s = decode; tag_s = tag }
+        | _, _ ->
+          printf "Error: One of decode/tag algorithms is empty\n";
+          exit 1
+      end
   in
-
   let str_to_mode mode =
     (* TODO: do some validity checks of decode and tag *)
     let f str phase = AeInst.from_string_block (String.of_string str) phase in
@@ -74,27 +59,27 @@ let _ =
   let run mode =
     Log.infof "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
     let mode = str_to_mode mode in
-    let display mode =
+    if check then begin
+      let f g = AeGraph.is_secure g in
+      let r = f mode.decode && f mode.tag in
+      print_endline (if r then "yes" else "no")
+    end;
+    if eval then begin
+      printf "Encode = %s\n" (AeGraph.eval mode.encode);
+      printf "Decode = %s\n" (AeGraph.eval mode.decode);
+      printf "Tag    = %s\n" (AeGraph.eval mode.tag)
+    end;
+    if display then begin
       AeGraph.display_with_feh mode.decode;
       AeGraph.display_with_feh mode.tag
-    in
-    let eval mode =
-      Printf.printf "Encode = %s\n" (AeGraph.eval mode.encode);
-      Printf.printf "Decode = %s\n" (AeGraph.eval mode.decode);
-      Printf.printf "Tag    = %s\n" (AeGraph.eval mode.tag)
-    in
-    let check mode =
-      let f g = AeGraph.is_secure g in
-      f mode.decode && f mode.tag
-    in
-    if !arg_check then print_endline (if check mode then "yes" else "no");
-    if !arg_eval then eval mode;
-    if !arg_display then display mode;
+    end;
+    if not check && not eval && not display then
+      print_endline "One of -check, -display, or -eval must be used"
   in
 
-  match !arg_file with
-  | "" -> run mode
-  | _ -> failwith "not implemented yet"
+  match file with
+  | None -> run mode
+  | Some file -> failwith "not implemented yet"
   (* | fn -> *)
   (*   let blocks = ref [] in *)
   (*   let maxsize = ref 0 in *)
@@ -134,7 +119,33 @@ let _ =
   (*   In_channel.close ic; *)
   (*   (\* print out relevant info *\) *)
   (*   AeInst.print_modes !blocks !maxsize; *)
-  (*   Printf.printf "# found modes: %d\n" (List.length !blocks); *)
+  (*   printf "# found modes: %d\n" (List.length !blocks); *)
   (*   for i = 1 to !maxsize do *)
-  (*     Printf.printf "# modes of size %d = %d\n%!" i (AeInst.count !blocks i) *)
+  (*     printf "# modes of size %d = %d\n%!" i (AeInst.count !blocks i) *)
   (*   done *)
+
+let spec_synth =
+  let open Command.Spec in
+  empty
+
+let run_synth () = failwith "Not implemented yet"
+
+let check =
+  Command.basic
+    ~summary:"Authenticated encryption scheme prover"
+    spec_check
+    run_check
+
+let synth =
+  Command.basic
+    ~summary:"Authenticated encryption scheme synthesizer"
+    spec_synth
+    run_synth
+
+let command =
+  Command.group ~summary:"Authenticated encryption scheme prover/synthesizer"
+    ["check", check; "synth", synth]
+
+let _ =
+  Command.run ~version:version command
+

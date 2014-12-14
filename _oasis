@@ -19,8 +19,8 @@ BuildDepends: dolog,
               core,
               threads
 
-Executable mocheck
+Executable aegenerator
   Path:           .
   BuildTools:     ocamlbuild
-  MainIs:         src/aecheck.ml
+  MainIs:         src/main.ml
   CompiledObject: best
