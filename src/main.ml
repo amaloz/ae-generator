@@ -71,7 +71,7 @@ let run_check mode decode tag check display eval file debug () =
     let mode = str_to_mode mode in
     if check then begin
       let f g = AeGraph.is_secure g in
-      let r = f mode.decode && f mode.tag in
+      let r = f mode.encode && f mode.decode && f mode.tag in
       print_endline (if r then "yes" else "no")
     end;
     if eval then begin
