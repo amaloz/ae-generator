@@ -1,8 +1,6 @@
 open Core.Std
 open AeOps
 
-type t = operations
-
 let n_in = function
   | Instruction Msg -> 0
   | Instruction Ini -> 0
@@ -24,28 +22,6 @@ let n_out = function
   | Instruction Tbc -> 1
   | StackInstruction Swap -> 2
   | StackInstruction Twoswap -> 3
-
-let string_of_t = function
-  | Instruction i ->
-    begin
-      match i with
-      | Msg -> "MSG"
-      | Ini -> "INI"
-      | Fin -> "FIN"
-      | Out -> "OUT"
-      | Dup -> "DUP"
-      | Xor -> "XOR"
-      | Tbc -> "TBC"
-    end
-  | StackInstruction s ->
-    begin
-      match s with
-      | Swap -> "SWAP"
-      | Twoswap -> "2SWAP"
-    end
-
-let string_of_t_list l =
-  List.to_string (fun x -> string_of_t x) l
 
 let from_string s phase =
   match String.uppercase s with
@@ -81,7 +57,7 @@ let print_modes found maxsize =
   for i = 1 to maxsize do
     Printf.printf "# modes of length %d:\n" i;
     let l = List.filter found (fun block -> block_length block = i) in
-    let l = List.map l (fun block -> string_of_t_list block) in
+    let l = List.map l (fun block -> string_of_op_list block) in
     let l = List.sort ~cmp:String.compare l in
     List.iter l (fun block -> Printf.printf "%s\n" block);
   done

@@ -35,7 +35,7 @@ module Topo' = Graph.Topological.Make(G')
 
 let string_of_v v =
   let inst, _, _ = G.V.label v in
-  AeInst.string_of_t (Instruction inst)
+  string_of_instruction inst
 
 let full_string_of_v v =
   let _, map, _ = G.V.label v in
@@ -180,11 +180,79 @@ let eval t =
   Topo.iter f t.g;
   String.concat ~sep:" " !out
 
+let find_vertex g mark =
+  (* printf "Searching for mark %d\n" mark; *)
+  let f v a =
+    match a with
+    | Some _ -> a
+    | None ->
+      if G.Mark.get v = mark then
+        Some v
+      else
+        None
+  in
+  G.fold_vertex f g None
+
 let derive_encode_graph t =
-  if t.phase <> Decode then
-    failwith "input must be decode graph";
-  (* FIXME: *)
-  { g = G.create (); phase = Encode; starts = []; checks = [] }
+  assert (t.phase = Decode);
+  let g = G.create () in
+  let starts = ref [] in
+  let checks = ref [] in
+  G.Mark.clear t.g;
+  let ctr = ref 1 in
+  let rec process v =
+    if G.Mark.get v = 0 then begin
+      let inst, _, _ = G.V.label v in
+      (* printf "Processing instruction %s\n" (string_of_instruction inst); *)
+      (* printf "Mark = %d\n" !ctr; *)
+      let inst' =
+        match inst with
+        | Ini -> Fin
+        | Fin -> Ini
+        | Msg -> Out
+        | Out -> Msg
+        | Dup | Xor | Tbc as i -> i
+      in
+      let v' = G.V.create (inst', ref None, ref "") in
+      begin
+        match inst' with
+        | Ini | Msg ->
+          starts := !starts @ [v']
+        | Out ->
+          checks := v' :: !checks
+        | _ -> ()
+      end;
+      G.Mark.set v !ctr;
+      G.Mark.set v' !ctr;
+      ctr := !ctr + 1;
+      G.add_vertex g v';
+      let add_edge src dst =
+        let dst = find_vertex g (G.Mark.get dst) in
+        match dst with
+        | Some dst ->
+          let e = G.E.create src () dst in
+          G.add_edge_e g e
+        | None -> ()
+      in
+      begin
+        match inst with
+        | Ini | Msg -> ()
+        | Fin | Out | Tbc | Xor ->
+          let ps = G.pred t.g v in
+          List.iter ps (add_edge v')
+        | Dup ->
+          let p = G.pred t.g v |> List.hd_exn in
+          add_edge v' p;
+          let ss = G.succ t.g v in
+          List.iter ss (add_edge v')
+      end;
+      List.iter (G.succ t.g v) process
+    end
+  in
+  List.iter t.starts process;
+  G.Mark.clear g;
+  G.Mark.clear t.g;
+  { g = g; phase = Encode; starts = !starts; checks = !checks }
 
 let clear t =
   let f v =

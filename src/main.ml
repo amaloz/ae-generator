@@ -16,24 +16,30 @@ let modes = "OCB"
 let spec_common =
   let open Command.Spec in
   empty
-  +> flag "-debug" (optional_with_default 0 int) ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
+  +> flag "-debug" (optional_with_default 0 int)
+    ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
 
 let spec_check =
   let open Command.Spec in
   empty
   +> flag "-mode" (optional string)
     ~doc:(sprintf "M Load mode M (Available modes: %s)" modes)
-  +> flag "-decode" (optional string) ~doc:"A Sets A to be the decode block"
-  +> flag "-tag" (optional string) ~doc:"A Sets A to be the tag block"
-  +> flag "-check" no_arg ~doc:"Check if mode is secure"
-  +> flag "-display" no_arg ~doc:"Display mode as a graph (needs 'dot' and 'feh')"
-  +> flag "-eval" no_arg ~doc:"Evaluate the given mode"
-  +> flag "-file" (optional file) ~doc:"F Run against modes given in F"
+  +> flag "-decode" (optional string)
+    ~doc:"A Sets A to be the decode block"
+  +> flag "-tag" (optional string)
+    ~doc:"A Sets A to be the tag block"
+  +> flag "-check" no_arg
+    ~doc:"Check if mode is secure"
+  +> flag "-display" no_arg
+    ~doc:"Display mode as a graph (needs 'dot' and 'feh')"
+  +> flag "-eval" no_arg
+    ~doc:"Evaluate the given mode"
+  +> flag "-file" (optional file)
+    ~doc:"F Run against modes given in F"
   ++ spec_common
 
 let run_check mode decode tag check display eval file debug () =
   Utils.debug_config debug;
-
   let mode =
     match mode with
     | Some mode -> begin
@@ -60,7 +66,6 @@ let run_check mode decode tag check display eval file debug () =
     let encode = AeGraph.derive_encode_graph decode in
     { encode = encode; decode = decode; tag = tag }
   in
-
   let run mode =
     Log.infof "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
     let mode = str_to_mode mode in
@@ -81,7 +86,6 @@ let run_check mode decode tag check display eval file debug () =
     if not check && not eval && not display then
       print_endline "One of -check, -display, or -eval must be used"
   in
-
   match file with
   | None -> run mode
   | Some file -> failwith "not implemented yet"
