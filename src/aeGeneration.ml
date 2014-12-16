@@ -6,7 +6,7 @@ let exists ?(keep_dups=false) tbl g =
   if keep_dups then false
   else
     let r = AeGraph.eval g in
-    Log.infof "Result = %s\n" r;
+    Log.info "Result = %s\n" r;
     match Hashtbl.add tbl ~key:r ~data:r with
     | `Duplicate -> true
     | `Ok -> false
@@ -17,13 +17,13 @@ let exists ?(keep_dups=false) tbl g =
 let gen f depth insts tbl phase =
   let blocks = ref [] in
   let process block =
-    Log.infof "Trying [%s]" (string_of_op_list block);
+    Log.info "Trying [%s]" (string_of_op_list block);
     let g = AeGraph.create block phase in
     if f g then
       begin
-        Log.infof "It works!";
+        Log.info "It works!";
         if exists tbl g then
-          Log.infof "already exists..."
+          Log.info "already exists..."
         else
           blocks := block :: !blocks
       end

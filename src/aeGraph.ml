@@ -262,7 +262,7 @@ let clear t =
   Topo.iter f t.g
 
 let check t types rand checks =
-  Log.infof "Checking %s..." (List.to_string string_of_typ types);
+  Log.info "Checking %s..." (List.to_string string_of_typ types);
   let max_ctr = ref 0 in
   let s = Stack.of_list types in
   clear t;
@@ -279,13 +279,13 @@ let check t types rand checks =
     let inst, _, _ = G.V.label v in
     match inst with
     | Msg | Ini ->
-      Log.debugf "%s" (full_string_of_v v)
+      Log.debug "%s" (full_string_of_v v)
     | Fin | Out | Dup ->
       let p = G.pred t.g v |> List.hd_exn in
       let _, pmap,_  = G.V.label p in
       let _, map, _ = G.V.label v in
       map := !pmap;
-      Log.debugf "%s" (full_string_of_v v)
+      Log.debug "%s" (full_string_of_v v)
     | Tbc ->
       let p = G.pred t.g v |> List.hd_exn in
       let _, pmap, _ = G.V.label p in
@@ -298,7 +298,7 @@ let check t types rand checks =
         end
       else
         map := Some pmap;
-      Log.debugf "%s" (full_string_of_v v)
+      Log.debug "%s" (full_string_of_v v)
     | Xor ->
       let ps = G.pred t.g v in
       let p1, p2 =
@@ -326,7 +326,7 @@ let check t types rand checks =
         map := Some { typ = Rand; ctr = p1map.ctr }
       else
         map := Some { typ = Bot; ctr = p1map.ctr };
-      Log.debugf "%s" (full_string_of_v v)
+      Log.debug "%s" (full_string_of_v v)
   in
   Topo.iter f t.g;
   (* Check that all nodes needing to be random are indeed marked random *)

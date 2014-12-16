@@ -103,7 +103,7 @@ let run_check mode decode tag check display eval file debug () =
     { encode = encode; decode = decode; tag = tag }
   in
   let run mode =
-    Log.infof "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
+    Log.info "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
     let mode = str_to_mode mode in
     if check then begin
       let f g = AeGraph.is_secure g in
