@@ -115,7 +115,7 @@ let run_synth all size print debug () =
   let f = run (fun g -> AeGraph.is_secure g) in
   let found =
     if all then
-      let sizes = List.range 1 (size + 1) in
+      let sizes = List.range 9 (size + 1) in
       List.fold_left sizes ~init:[] ~f:f
     else
       f [] size
