@@ -7,26 +7,68 @@ type mode_s = { decode_s : string; tag_s : string }
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
 let ocb = {
-  decode_s = "INI INI SWAP MSG SWAP MSG TBC DUP OUT XOR SWAP TBC DUP OUT XOR FIN FIN";
-  tag_s = "INI INI SWAP TBC OUT"
+  decode_s =
+    "INI INI SWAP MSG SWAP MSG TBC DUP OUT XOR SWAP TBC DUP OUT XOR FIN FIN";
+  tag_s =
+    "INI INI SWAP TBC OUT"
 }
 
 let modes = "OCB"
 
+let block =
+  Command.Spec.Arg_type.create
+    (fun s ->
+       let block =
+         try
+           AeInst.from_string_block s
+         with AeInst.Parse_error e ->
+           eprintf "Error: parsing block failed: %s\n%!" e;
+           exit 1
+       in
+       if AeStack.is_valid block then
+         s
+       else begin
+         eprintf "Error: block is invalid\n%!";
+         exit 1
+       end
+    )
+
+let debug =
+  Command.Spec.Arg_type.create
+    (fun s ->
+       let i = Int.of_string s in
+       if i >= 0 && i <= 4 then
+         i
+       else begin
+         eprintf "Error: debug value out of range\n%!";
+         exit 1
+       end
+    )
+
+let mode =
+  Command.Spec.Arg_type.create
+    (fun s ->
+       match String.uppercase s with
+       | "OCB" -> ocb
+       | _ ->
+         eprintf "Error: unknown mode '%s'\n%!" s;
+         exit 1
+    )
+
 let spec_common =
   let open Command.Spec in
   empty
-  +> flag "-debug" (optional_with_default 0 int)
+  +> flag "-debug" (optional_with_default 0 debug)
     ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
 
 let spec_check =
   let open Command.Spec in
   empty
-  +> flag "-mode" (optional string)
+  +> flag "-mode" (optional mode)
     ~doc:(sprintf "M Load mode M (Available modes: %s)" modes)
-  +> flag "-decode" (optional string)
+  +> flag "-decode" (optional block)
     ~doc:"A Sets A to be the decode block"
-  +> flag "-tag" (optional string)
+  +> flag "-tag" (optional block)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
     ~doc:"Check if mode is secure"
@@ -42,19 +84,13 @@ let run_check mode decode tag check display eval file debug () =
   Utils.debug_config debug;
   let mode =
     match mode with
-    | Some mode -> begin
-        match String.uppercase mode with
-        | "OCB" -> ocb
-        | _ ->
-          printf "Error: Unknown mode '%s'\n" mode;
-          exit 1
-      end
+    | Some mode -> mode
     | None -> begin
         match decode, tag with
         | Some decode, Some tag ->
           { decode_s = decode; tag_s = tag }
         | _, _ ->
-          printf "Error: One of decode/tag algorithms is empty\n";
+          eprintf "Error: One of decode/tag algorithms is empty\n%!";
           exit 1
       end
   in
@@ -84,19 +120,20 @@ let run_check mode decode tag check display eval file debug () =
       AeGraph.display_with_feh mode.tag
     end;
     if not check && not eval && not display then
-      print_endline "One of -check, -display, or -eval must be used"
+      eprintf "One of -check, -display, or -eval must be used\n%!"
   in
   match file with
   | None -> run mode
   | Some file -> failwith "not implemented yet"
 
 let spec_synth =
+  let size = 11 in
   let open Command.Spec in
   empty
   +> flag "-all" no_arg
     ~doc:" Run for all block sizes less than or equal to the size given by -size"
-  +> flag "-size" (optional_with_default 10 int)
-    ~doc:"N Number of instructions in decode to generate (default = 10)"
+  +> flag "-size" (optional_with_default size int)
+    ~doc:(sprintf "N Number of instructions in decode to generate (default = %d)" size)
   +> flag "-print" no_arg
     ~doc:" Print found schemes to stdout"
   ++ spec_common
@@ -115,7 +152,7 @@ let run_synth all size print debug () =
   let f = run (fun g -> AeGraph.is_secure g) in
   let found =
     if all then
-      let sizes = List.range 9 (size + 1) in
+      let sizes = List.range 10 (size + 1) in
       List.fold_left sizes ~init:[] ~f:f
     else
       f [] size
@@ -145,4 +182,3 @@ let command =
 
 let _ =
   Command.run ~version:version command
-

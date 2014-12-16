@@ -18,9 +18,10 @@ type stackInstruction =
   | Swap
   | Twoswap
 
-type operations =
-  | Instruction of instruction
-  | StackInstruction of stackInstruction
+let string_of_phase = function
+  | Encode -> "Encode"
+  | Decode -> "Decode"
+  | Tag -> "Tag"
 
 let string_of_instruction = function
   | Msg -> "MSG"
@@ -34,6 +35,10 @@ let string_of_instruction = function
 let string_of_stack_instruction = function
   | Swap -> "SWAP"
   | Twoswap -> "2SWAP"
+
+type op =
+  | Instruction of instruction
+  | StackInstruction of stackInstruction
 
 let string_of_op = function
   | Instruction i -> string_of_instruction i

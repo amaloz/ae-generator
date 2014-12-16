@@ -13,9 +13,8 @@ let exists ?(keep_dups=false) tbl g =
 
 (* Generates modes satisfying input function 'f', using 'depth' as the number of
    elements in each mode, 'insts' as the instructions to use in generation, and
-   'tbl' as the duplicate items table.  The 'pruning' flag either enables or
-   disables pruning. *)
-let gen f ?(pruning=true) ?(keep_dups=false) depth insts tbl phase =
+   'tbl' as the duplicate items table. *)
+let gen f depth insts tbl phase =
   let blocks = ref [] in
   let process block =
     Log.infof "Trying [%s]" (string_of_op_list block);
@@ -23,7 +22,7 @@ let gen f ?(pruning=true) ?(keep_dups=false) depth insts tbl phase =
     if f g then
       begin
         Log.infof "It works!";
-        if exists ~keep_dups:keep_dups tbl g then
+        if exists tbl g then
           Log.infof "already exists..."
         else
           blocks := block :: !blocks
@@ -35,7 +34,7 @@ let gen f ?(pruning=true) ?(keep_dups=false) depth insts tbl phase =
     (* only loop if 'i' is a valid instruction to use here *)
     if n >= 0 
     && AeInst.n_in i <= ninputs
-    && (not pruning || not (AeStack.is_pruneable i block)) then
+    && not (AeStack.is_pruneable i block) then
       loop (depth - 1) n (i :: block)
   and loop depth ninputs block =
     match depth with
@@ -47,5 +46,5 @@ let gen f ?(pruning=true) ?(keep_dups=false) depth insts tbl phase =
       List.iter insts (iter depth ninputs block)
     | _ -> ()
   in
-  List.iter insts (iter depth 2 []);
+  List.iter insts (iter depth 0 []);
   !blocks

@@ -1,6 +1,8 @@
 open Core.Std
 open AeOps
 
+exception Parse_error of string
+
 let n_in = function
   | Instruction Msg -> 0
   | Instruction Ini -> 0
@@ -34,12 +36,12 @@ let from_string s =
   | "TBC" -> Instruction Tbc
   | "SWAP" -> StackInstruction Swap
   | "2SWAP" -> StackInstruction Twoswap
-  | "" -> failwith "Failure: no instruction given"
-  | _ as s -> failwith (String.concat ["Failure: unknown instruction "; s])
+  | "" -> raise (Parse_error "no instruction given")
+  | _ as s ->
+    raise (Parse_error (sprintf "unknown instruction '%s'" s))
 
 let from_string_block s =
-  let f s = from_string s in
-  List.map (String.split s ~on:' ') f
+  List.map (String.split s ~on:' ') from_string
 
 let block_length l =
   (* we do not count stack instructions as part of the block length *)

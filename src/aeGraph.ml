@@ -301,8 +301,12 @@ let check t types rand checks =
       Log.debugf "%s" (full_string_of_v v)
     | Xor ->
       let ps = G.pred t.g v in
-      let p1 = List.nth_exn ps 0 in
-      let p2 = List.nth_exn ps 1 in
+      let p1, p2 =
+        if List.length ps = 1 then
+          List.nth_exn ps 0, List.nth_exn ps 0
+        else
+          List.nth_exn ps 0, List.nth_exn ps 1
+      in
       let _, p1map, _ = G.V.label p1 in
       let _, p2map, _ = G.V.label p2 in
       let p1map = Option.value_exn !p1map in
