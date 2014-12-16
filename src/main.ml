@@ -60,9 +60,9 @@ let run_check mode decode tag check display eval file debug () =
   in
   let str_to_mode mode =
     (* TODO: do some validity checks of decode and tag *)
-    let f str phase = AeInst.from_string_block (String.of_string str) phase in
-    let decode = AeGraph.create (f mode.decode_s Decode) Decode in
-    let tag = AeGraph.create (f mode.tag_s Tag) Tag in
+    let f str = AeInst.from_string_block (String.of_string str) in
+    let decode = AeGraph.create (f mode.decode_s) Decode in
+    let tag = AeGraph.create (f mode.tag_s) Tag in
     let encode = AeGraph.derive_encode_graph decode in
     { encode = encode; decode = decode; tag = tag }
   in
@@ -93,11 +93,39 @@ let run_check mode decode tag check display eval file debug () =
 let spec_synth =
   let open Command.Spec in
   empty
+  +> flag "-all" no_arg
+    ~doc:" Run for all block sizes less than or equal to the size given by -size"
+  +> flag "-size" (optional_with_default 10 int)
+    ~doc:"N Number of instructions in decode to generate (default = 10)"
+  +> flag "-print" no_arg
+    ~doc:" Print found schemes to stdout"
   ++ spec_common
 
-let run_synth debug () =
+let run_synth all size print debug () =
   Utils.debug_config debug;
-  failwith "Not implemented yet"
+  let insts = [
+    "INI"; "FIN"; "MSG"; "OUT"; "XOR"; "DUP"; "TBC"; "SWAP"; "2SWAP"
+  ] in
+  let insts = List.map insts (fun i -> AeInst.from_string i) in
+  let tbl = String.Table.create () ~size:1024 in
+  let run f found size =
+    let blocks = AeGeneration.gen f size insts tbl Decode in
+    List.append found blocks
+  in
+  let f = run (fun g -> AeGraph.is_secure g) in
+  let found =
+    if all then
+      let sizes = List.range 1 (size + 1) in
+      List.fold_left sizes ~init:[] ~f:f
+    else
+      f [] size
+  in
+  if print then
+    AeInst.print_modes found size;
+  printf "# found modes: %d\n" (List.length found);
+  for i = 1 to size do
+    printf "# modes of size %d = %d\n%!" i (AeInst.count found i)
+  done
 
 let check =
   Command.basic

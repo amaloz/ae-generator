@@ -18,7 +18,7 @@ let exists ?(keep_dups=false) tbl g =
 let gen f ?(pruning=true) ?(keep_dups=false) depth insts tbl phase =
   let blocks = ref [] in
   let process block =
-    Log.infof "Trying [%s]" (AeInst.string_of_t_list block);
+    Log.infof "Trying [%s]" (string_of_op_list block);
     let g = AeGraph.create block phase in
     if f g then
       begin

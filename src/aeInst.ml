@@ -23,7 +23,7 @@ let n_out = function
   | StackInstruction Swap -> 2
   | StackInstruction Twoswap -> 3
 
-let from_string s phase =
+let from_string s =
   match String.uppercase s with
   | "MSG" -> Instruction Msg
   | "INI" -> Instruction Ini
@@ -37,8 +37,8 @@ let from_string s phase =
   | "" -> failwith "Failure: no instruction given"
   | _ as s -> failwith (String.concat ["Failure: unknown instruction "; s])
 
-let from_string_block s phase =
-  let f s = from_string s phase in
+let from_string_block s =
+  let f s = from_string s in
   List.map (String.split s ~on:' ') f
 
 let block_length l =
