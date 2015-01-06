@@ -140,18 +140,32 @@ let display_with_feh t =
         end
         else Mark.get v
       in
-      Printf.sprintf "%s_%d" (string_of_v v) c
-    let graph_attributes _ = []
-    let default_vertex_attributes _ = []
-    let vertex_attributes _ = []
+      Int.to_string c
+    let graph_attributes _ = [
+      `Center true;
+      `Label (string_of_phase t.phase);
+      `Fontsize 14;
+    ]
+    let default_vertex_attributes _ = [
+      `Shape `Box;
+      `Style `Filled;
+      `Fillcolor 0xffffff;
+      `Fontsize 10;
+    ]
+    let vertex_attributes v =
+      let inst, _, _ = G.V.label v in
+      match inst with
+      | _ -> [
+          `Label (string_of_instruction inst);
+        ]
     let default_edge_attributes _ = []
     let edge_attributes _ = []
     let get_subgraph _ = None
   end in
   let module Dot = Graph.Graphviz.Dot(Display) in
   let tmp = Filename.temp_file "mode" ".dot" in
-  G.Mark.clear t.g;
   let oc = Out_channel.create tmp in
+  G.Mark.clear t.g;
   Dot.output_graph oc t.g;
   Out_channel.close oc;
   ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));

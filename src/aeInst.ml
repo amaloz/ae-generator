@@ -1,8 +1,6 @@
 open Core.Std
 open AeOps
 
-exception Parse_error of string
-
 let n_in = function
   | Instruction Msg1 -> 0
   | Instruction Msg2 -> 0
@@ -35,25 +33,24 @@ let n_out = function
 
 let from_string s =
   match String.uppercase s with
-  | "MSG1" -> Instruction Msg1
-  | "MSG2" -> Instruction Msg2
-  | "INI1" -> Instruction Ini1
-  | "INI2" -> Instruction Ini2
-  | "FIN1" -> Instruction Fin1
-  | "FIN2" -> Instruction Fin2
-  | "OUT1" -> Instruction Out1
-  | "OUT2" -> Instruction Out2
-  | "DUP" -> Instruction Dup
-  | "XOR" -> Instruction Xor
-  | "TBC" -> Instruction Tbc
-  | "SWAP" -> StackInstruction Swap
-  | "2SWAP" -> StackInstruction Twoswap
-  | "" -> raise (Parse_error "no instruction given")
-  | _ as s ->
-    raise (Parse_error (sprintf "unknown instruction '%s'" s))
+  | "MSG1" -> Ok (Instruction Msg1)
+  | "MSG2" -> Ok (Instruction Msg2)
+  | "INI1" -> Ok (Instruction Ini1)
+  | "INI2" -> Ok (Instruction Ini2)
+  | "FIN1" -> Ok (Instruction Fin1)
+  | "FIN2" -> Ok (Instruction Fin2)
+  | "OUT1" -> Ok (Instruction Out1)
+  | "OUT2" -> Ok (Instruction Out2)
+  | "DUP" -> Ok (Instruction Dup)
+  | "XOR" -> Ok (Instruction Xor)
+  | "TBC" -> Ok (Instruction Tbc)
+  | "SWAP" -> Ok (StackInstruction Swap)
+  | "2SWAP" -> Ok (StackInstruction Twoswap)
+  | "" -> Or_error.error_string "no instruction given"
+  | _ as s -> Or_error.error_string (sprintf "unknown instruction '%s'" s)
 
 let from_string_block s =
-  List.map (String.split s ~on:' ') from_string
+  List.map (String.split s ~on:' ') from_string |> Or_error.combine_errors
 
 let block_length l =
   (* we do not count stack instructions as part of the block length *)
@@ -75,3 +72,59 @@ let print_modes found maxsize =
     let l = List.sort ~cmp:String.compare l in
     List.iter l (fun block -> Printf.printf "%s\n" block);
   done
+
+let validate block phase =
+  let eq x y = (Instruction x) = y in
+  let check b s = if b then Ok () else Or_error.error_string s in
+  let one inst =
+    let c = List.count block (eq inst) in
+    check (c = 1) (sprintf "Need exactly one %s instruction (%d found)"
+                     (string_of_instruction inst) c)
+  in
+  match phase with
+  | Encode | Decode ->
+    let l = [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2] in
+    let l = List.map l one in
+    Or_error.combine_errors_unit l
+  | Tag ->
+    let l = [Ini1; Ini2; Out1] in
+    let l = List.map l one in
+    Or_error.combine_errors_unit l
+
+let is_valid block =
+  let eq x y = (Instruction x) = y in
+  List.count block (eq Ini1) = 1
+  && List.count block (eq Ini2) = 1
+  && List.count block (eq Fin1) = 1
+  && List.count block (eq Fin2) = 1
+  && List.count block (eq Msg1) = 1
+  && List.count block (eq Msg2) = 1
+  && List.count block (eq Out1) = 1
+  && List.count block (eq Out2) = 1
+  && List.exists block (eq Tbc)
+
+let is_pruneable i block =
+  let cmp_prev i prev =
+    let p i = prev = Instruction i in
+    let ps i = prev = StackInstruction i in
+    match i with
+    | Instruction i ->
+      begin
+        match i with
+        | Out1 | Out2 -> p Msg1 || p Msg2
+        | Fin1 -> p Ini2
+        | Fin2 -> p Ini1 
+        | Tbc -> p Tbc
+        | Xor -> p Dup
+        | _ -> false
+      end
+    | StackInstruction i ->
+      begin
+        match i with
+        | Swap -> p Dup || ps Swap
+        | Twoswap -> ps Twoswap
+      end
+  in
+  match block with
+  | hd :: _ -> cmp_prev i hd
+  | [] -> false

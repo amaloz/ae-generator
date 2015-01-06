@@ -3,53 +3,16 @@ open AeOps
 
 let version = "0.1"
 
-type mode_s = { decode_s : string; tag_s : string }
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
-let ocb = {
-  decode_s =
-    "INI1 INI2 FIN2 MSG1 TBC DUP OUT1 XOR MSG2 TBC DUP OUT2 XOR FIN1";
-  tag_s =
-    "INI1 INI2 SWAP TBC OUT1"
-}
-
-let xcbc = {
-  decode_s =
-    "INI1 INI2 MSG1 DUP MSG2 DUP FIN2 TBC XOR DUP OUT2 2SWAP SWAP TBC XOR DUP OUT1 2SWAP XOR XOR FIN1";
-  tag_s =
-    "INI1 INI2 SWAP TBC OUT1"
-}
-
-let modes =
-  String.Map.of_alist_exn [
-    "OCB", ocb;
-    "XCBC", xcbc
-  ]
-
-let block =
-  Command.Spec.Arg_type.create
-    (fun s ->
-       let block =
-         try
-           AeInst.from_string_block s
-         with AeInst.Parse_error e ->
-           eprintf "Error: parsing block failed: %s\n%!" e;
-           exit 1
-       in
-       if AeStack.is_valid block then
-         s
-       else begin
-         eprintf "Error: block is invalid\n%!";
-         exit 1
-       end
-    )
+let all_instructions =
+  ["MSG1"; "MSG2"; "INI1"; "INI2"; "FIN1"; "FIN2"; "OUT1"; "OUT2"; "DUP"; "XOR"; "TBC"]
 
 let debug =
   Command.Spec.Arg_type.create
     (fun s ->
        let i = Int.of_string s in
-       if i >= 0 && i <= 4 then
-         i
+       if i >= 0 && i <= 4 then i
        else begin
          eprintf "Error: debug value out of range\n%!";
          exit 1
@@ -59,7 +22,7 @@ let debug =
 let mode =
   Command.Spec.Arg_type.create
     (fun s ->
-       match String.Map.find modes (String.uppercase s) with
+       match String.Map.find Modes.modes (String.uppercase s) with
        | Some mode -> mode
        | None ->
          eprintf "Error: unknown mode '%s'\n%!" s;
@@ -77,10 +40,10 @@ let spec_check =
   empty
   +> flag "-mode" (optional mode)
     ~doc:(sprintf "M Load mode M (Available modes: %s)"
-            (String.Map.keys modes |> String.concat ~sep:", "))
-  +> flag "-decode" (optional block)
+            (String.Map.keys Modes.modes |> String.concat ~sep:", "))
+  +> flag "-decode" (optional string)
     ~doc:"A Sets A to be the decode block"
-  +> flag "-tag" (optional block)
+  +> flag "-tag" (optional string)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
     ~doc:" Check if mode is secure"
@@ -99,30 +62,40 @@ let run_check mode decode tag check display eval file debug () =
     | Some mode -> mode
     | None -> begin
         match decode, tag with
-        | Some decode, Some tag ->
-          { decode_s = decode; tag_s = tag }
-        | _, _ ->
-          eprintf "Error: One of decode/tag algorithms is empty\n%!";
+        | Some decode, Some tag -> Modes.create decode tag
+        | None, _ ->
+          eprintf "Error: decode algorithm is missing!\n%!";
+          exit 1
+        | _, None ->
+          eprintf "Error: tag algorithm is missing!\n%!";
           exit 1
       end
   in
   let str_to_mode mode =
-    (* TODO: do some validity checks of decode and tag *)
-    let f str = AeInst.from_string_block (String.of_string str) in
-    let decode = AeGraph.create (f mode.decode_s) Decode in
-    let tag = AeGraph.create (f mode.tag_s) Tag in
+    let f str phase =
+      let f str phase =
+        let open Or_error.Monad_infix in
+        AeInst.from_string_block str
+        >>= fun block ->
+        AeInst.validate block phase
+        >>= fun () ->
+        AeGraph.create block phase |> Or_error.return
+      in
+      match f str phase with
+      | Ok graph -> graph
+      | Error err ->
+        eprintf "Error: %s\n%!" (Error.to_string_hum err);
+        exit 1
+    in
+    let decode = f (Modes.decode_string mode) Decode in
+    let tag = f (Modes.tag_string mode) Tag in
     let encode = AeGraph.derive_encode_graph decode in
     { encode = encode; decode = decode; tag = tag }
   in
   let run mode =
-    Log.info "Checking [%s] [%s]" mode.decode_s mode.tag_s;
-    let mode =
-      try
-        str_to_mode mode
-      with AeInst.Parse_error e ->
-        eprintf "Error: %s\n%!" e;
-        exit 1
-    in
+    Log.info "Checking [%s] [%s]" (Modes.decode_string mode)
+      (Modes.tag_string mode);
+    let mode = str_to_mode mode in
     if check then begin
       let f g = AeGraph.is_secure g in
       let r = f mode.encode && f mode.decode && f mode.tag in
@@ -136,7 +109,7 @@ let run_check mode decode tag check display eval file debug () =
     if display then begin
       AeGraph.display_with_feh mode.decode;
       AeGraph.display_with_feh mode.encode;
-      (* AeGraph.display_with_feh mode.tag *)
+      AeGraph.display_with_feh mode.tag
     end;
     if not check && not eval && not display then
       eprintf "One of -check, -display, or -eval must be used\n%!"
@@ -159,23 +132,10 @@ let spec_synth =
 
 let run_synth all size print debug () =
   Utils.debug_config debug;
-  let insts = [
-    "INI"; "FIN"; "MSG"; "OUT"; "XOR"; "DUP"; "TBC"; "SWAP"; "2SWAP"
-  ] in
-  let insts = List.map insts (fun i -> AeInst.from_string i) in
+  let insts = List.map all_instructions (fun i -> AeInst.from_string i)
+              |> Or_error.combine_errors |> ok_exn in
   let tbl = String.Table.create () ~size:1024 in
-  let run f found size =
-    let blocks = AeGeneration.gen f size insts tbl Decode in
-    List.append found blocks
-  in
-  let f = run (fun g -> AeGraph.is_secure g) in
-  let found =
-    if all then
-      let sizes = List.range 10 (size + 1) in
-      List.fold_left sizes ~init:[] ~f:f
-    else
-      f [] size
-  in
+  let found = AeGeneration.gen ~all:all size insts tbl Decode in
   if print then
     AeInst.print_modes found size;
   printf "# found modes: %d\n" (List.length found);
@@ -185,18 +145,25 @@ let run_synth all size print debug () =
 
 let check =
   Command.basic
-    ~summary:"Authenticated encryption scheme prover"
+    ~summary:"Authenticated encryption scheme prover."
+    ~readme:(fun () -> sprintf "\
+Proves a given authenticated encryption scheme secure.  The user can either
+input an existing mode using the -mode flag, or input their own mode using the
+-decode and -tag flags using following instructions:
+
+  %s" (String.concat ~sep:", " all_instructions))
     spec_check
     run_check
 
 let synth =
   Command.basic
-    ~summary:"Authenticated encryption scheme synthesizer"
+    ~summary:"Authenticated encryption scheme synthesizer."
     spec_synth
     run_synth
 
 let command =
-  Command.group ~summary:"Authenticated encryption scheme prover/synthesizer"
+  Command.group
+    ~summary:"Authenticated encryption scheme prover/synthesizer."
     ["check", check; "synth", synth]
 
 let _ =
