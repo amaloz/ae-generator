@@ -3,10 +3,14 @@ open AeOps
 
 let is_valid block =
   let eq x y = (Instruction x) = y in
-  List.count block (eq Ini) = 2
-  && List.count block (eq Fin) = 2
-  && List.count block (eq Msg) = 2
-  && List.count block (eq Out) = 2
+  List.count block (eq Ini1) = 1
+  && List.count block (eq Ini2) = 1
+  && List.count block (eq Fin1) = 1
+  && List.count block (eq Fin2) = 1
+  && List.count block (eq Msg1) = 1
+  && List.count block (eq Msg2) = 1
+  && List.count block (eq Out1) = 1
+  && List.count block (eq Out2) = 1
   && List.exists block (eq Tbc)
 
 let is_pruneable i block =
@@ -17,7 +21,7 @@ let is_pruneable i block =
     | Instruction i ->
       begin
         match i with
-        | Out -> cmpi Msg
+        (* | Out -> cmpi Msg *)
         | Tbc -> cmpi Tbc
         | Xor -> cmpi Dup
         | _ -> false

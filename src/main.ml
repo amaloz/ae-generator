@@ -8,12 +8,23 @@ type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
 let ocb = {
   decode_s =
-    "INI INI SWAP MSG SWAP MSG TBC DUP OUT XOR SWAP TBC DUP OUT XOR FIN FIN";
+    "INI1 INI2 FIN2 MSG1 TBC DUP OUT1 XOR MSG2 TBC DUP OUT2 XOR FIN1";
   tag_s =
-    "INI INI SWAP TBC OUT"
+    "INI1 INI2 SWAP TBC OUT1"
 }
 
-let modes = "OCB"
+let xcbc = {
+  decode_s =
+    "INI1 INI2 MSG1 DUP MSG2 DUP FIN2 TBC XOR DUP OUT2 2SWAP SWAP TBC XOR DUP OUT1 2SWAP XOR XOR FIN1";
+  tag_s =
+    "INI1 INI2 SWAP TBC OUT1"
+}
+
+let modes =
+  String.Map.of_alist_exn [
+    "OCB", ocb;
+    "XCBC", xcbc
+  ]
 
 let block =
   Command.Spec.Arg_type.create
@@ -48,9 +59,9 @@ let debug =
 let mode =
   Command.Spec.Arg_type.create
     (fun s ->
-       match String.uppercase s with
-       | "OCB" -> ocb
-       | _ ->
+       match String.Map.find modes (String.uppercase s) with
+       | Some mode -> mode
+       | None ->
          eprintf "Error: unknown mode '%s'\n%!" s;
          exit 1
     )
@@ -65,17 +76,18 @@ let spec_check =
   let open Command.Spec in
   empty
   +> flag "-mode" (optional mode)
-    ~doc:(sprintf "M Load mode M (Available modes: %s)" modes)
+    ~doc:(sprintf "M Load mode M (Available modes: %s)"
+            (String.Map.keys modes |> String.concat ~sep:", "))
   +> flag "-decode" (optional block)
     ~doc:"A Sets A to be the decode block"
   +> flag "-tag" (optional block)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
-    ~doc:"Check if mode is secure"
+    ~doc:" Check if mode is secure"
   +> flag "-display" no_arg
-    ~doc:"Display mode as a graph (needs 'dot' and 'feh')"
+    ~doc:" Display mode as a graph (needs 'dot' and 'feh')"
   +> flag "-eval" no_arg
-    ~doc:"Evaluate the given mode"
+    ~doc:" Evaluate the given mode"
   +> flag "-file" (optional file)
     ~doc:"F Run against modes given in F"
   ++ spec_common
@@ -103,11 +115,17 @@ let run_check mode decode tag check display eval file debug () =
     { encode = encode; decode = decode; tag = tag }
   in
   let run mode =
-    Log.info "Checking [%s] [%s]\n%!" mode.decode_s mode.tag_s;
-    let mode = str_to_mode mode in
+    Log.info "Checking [%s] [%s]" mode.decode_s mode.tag_s;
+    let mode =
+      try
+        str_to_mode mode
+      with AeInst.Parse_error e ->
+        eprintf "Error: %s\n%!" e;
+        exit 1
+    in
     if check then begin
       let f g = AeGraph.is_secure g in
-      let r = f mode.encode && f mode.decode && f mode.tag in
+      let r = (* f mode.encode && *) f mode.decode && f mode.tag in
       print_endline (if r then "yes" else "no")
     end;
     if eval then begin
@@ -117,7 +135,8 @@ let run_check mode decode tag check display eval file debug () =
     end;
     if display then begin
       AeGraph.display_with_feh mode.decode;
-      AeGraph.display_with_feh mode.tag
+      AeGraph.display_with_feh mode.encode;
+      (* AeGraph.display_with_feh mode.tag *)
     end;
     if not check && not eval && not display then
       eprintf "One of -check, -display, or -eval must be used\n%!"

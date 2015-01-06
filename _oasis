@@ -23,4 +23,4 @@ Executable aegenerator
   Path:           .
   BuildTools:     ocamlbuild
   MainIs:         src/main.ml
-  CompiledObject: best
+  CompiledObject: byte

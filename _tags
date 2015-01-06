@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: f75a6038a1327f6d6f056cac5895974d)
+# DO NOT EDIT (digest: c87b051107747269e045bda472ef3cc1)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -15,11 +15,11 @@ true: annot, bin_annot
 "_darcs": -traverse
 "_darcs": not_hygienic
 # Executable aegenerator
-<src/main.{native,byte}>: package(core)
-<src/main.{native,byte}>: package(cryptokit)
-<src/main.{native,byte}>: package(dolog)
-<src/main.{native,byte}>: package(ocamlgraph)
-<src/main.{native,byte}>: package(threads)
+"src/main.byte": package(core)
+"src/main.byte": package(cryptokit)
+"src/main.byte": package(dolog)
+"src/main.byte": package(ocamlgraph)
+"src/main.byte": package(threads)
 <*.ml{,i,y}>: package(core)
 <*.ml{,i,y}>: package(cryptokit)
 <*.ml{,i,y}>: package(dolog)

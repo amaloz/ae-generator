@@ -6,10 +6,14 @@ type phase =
   | Tag
 
 type instruction =
-  | Msg
-  | Ini
-  | Fin
-  | Out
+  | Msg1
+  | Msg2
+  | Ini1
+  | Ini2
+  | Fin1
+  | Fin2
+  | Out1
+  | Out2
   | Dup
   | Xor
   | Tbc
@@ -24,10 +28,14 @@ let string_of_phase = function
   | Tag -> "Tag"
 
 let string_of_instruction = function
-  | Msg -> "MSG"
-  | Ini -> "INI"
-  | Fin -> "FIN"
-  | Out -> "OUT"
+  | Msg1 -> "MSG1"
+  | Msg2 -> "MSG2"
+  | Ini1 -> "INI1"
+  | Ini2 -> "INI2"
+  | Fin1 -> "FIN1"
+  | Fin2 -> "FIN2"
+  | Out1 -> "OUT1"
+  | Out2 -> "OUT2"
   | Dup -> "DUP"
   | Xor -> "XOR"
   | Tbc -> "TBC"
