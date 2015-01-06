@@ -234,7 +234,7 @@ let create_encode_graph t =
         | _ -> checks
       in
       let set v v' i = G.Mark.set v i; G.Mark.set v' i in
-      set v v' (if G.Mark.get v = 1 then !ctr + 100 else !ctr);
+      set v v' (if G.Mark.get v = -1 then !ctr + 100 else !ctr);
       ctr := !ctr + 1;
       checks
     end else checks
