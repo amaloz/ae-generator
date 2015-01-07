@@ -222,6 +222,8 @@ let eval t =
       let _, _, s2 = List.nth_exn ps 1 |> G.V.label in
       s := xor !s1 !s2
     | Tbc ->
+      (* XXX: note quite a tweakable blockcipher, but hopefully sufficient for
+         our purposes *)
       let _, _, s' = G.pred t.g v |> List.hd_exn |> G.V.label in
       let r = String.create 16 in
       cipher#transform (ofhexstr !s') 0 r 0;

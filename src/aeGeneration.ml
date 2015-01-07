@@ -57,7 +57,6 @@ let gen ?(all=false) size insts tbl phase =
     and loop depth ninputs block counts =
       match depth with
       | 0 ->
-        (* Log.info "Hit bottom... [%s]" (string_of_op_list (List.rev block)); *)
         let block = List.rev block in
         if ninputs = 0 && AeInst.is_valid block then
           begin
@@ -82,6 +81,7 @@ let gen ?(all=false) size insts tbl phase =
     Instruction Msg2, 1;
     Instruction Out1, 1;
     Instruction Out2, 1;
+    (* XXX: Limiting number of TBCs to <= 4 *)
     Instruction Tbc, 4;
   ] in
   let f found size =
@@ -93,5 +93,3 @@ let gen ?(all=false) size insts tbl phase =
     List.fold_left sizes ~init:[] ~f:f
   else
     f [] size
-  
-  

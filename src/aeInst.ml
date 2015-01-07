@@ -81,15 +81,30 @@ let validate block phase =
     check (c = 1) (sprintf "Need exactly one %s instruction (%d found)"
                      (string_of_instruction inst) c)
   in
-  match phase with
-  | Encode | Decode ->
-    let l = [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2] in
-    let l = List.map l one in
-    Or_error.combine_errors_unit l
-  | Tag ->
-    let l = [Ini1; Ini2; Out1] in
-    let l = List.map l one in
-    Or_error.combine_errors_unit l
+  let open Or_error.Monad_infix in
+  begin
+    match phase with
+    | Encode | Decode ->
+      let l = [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2] in
+      let l = List.map l one in
+      Or_error.combine_errors_unit l
+    | Tag ->
+      let l = [Ini1; Ini2; Out1] in
+      let l = List.map l one in
+      Or_error.combine_errors_unit l
+  end
+  >>= fun () ->
+  begin
+    match phase with
+    | Encode | Decode ->
+      let f acc i = acc - n_in i + n_out i in
+      if List.fold block ~init:0 ~f:f = 0 then
+        Ok ()
+      else
+        Or_error.error_string (sprintf "Leftover items on stack in %s algorithm"
+                                 (string_of_phase phase))
+    | Tag -> Ok ()              (* TODO: verify Tag algorithm somehow *)
+  end
 
 let is_valid block =
   let eq x y = (Instruction x) = y in

@@ -19,8 +19,7 @@ let debug =
        let i = Int.of_string s in
        if i >= 0 && i <= 4 then i
        else begin
-         eprintf "Error: debug value out of range\n%!";
-         exit 1
+         eprintf "Error: debug value out of range.\n%!"; exit 1
        end
     )
 
@@ -30,7 +29,8 @@ let mode =
        match String.Map.find Modes.modes (String.uppercase s) with
        | Some mode -> mode
        | None ->
-         eprintf "Error: unknown mode '%s'\n%!" s;
+         eprintf "Error: unknown mode '%s'. Available modes: %s.\n%!" s
+           Modes.modes_string;
          exit 1
     )
 
@@ -44,8 +44,7 @@ let spec_check =
   let open Command.Spec in
   empty
   +> flag "-mode" (optional mode)
-    ~doc:(sprintf "M Load mode M (Available modes: %s)"
-            (String.Map.keys Modes.modes |> String.concat ~sep:", "))
+    ~doc:(sprintf "M Load mode M (Available modes: %s)" Modes.modes_string)
   +> flag "-decode" (optional string)
     ~doc:"A Sets A to be the decode block"
   +> flag "-tag" (optional string)
@@ -56,11 +55,11 @@ let spec_check =
     ~doc:" Display mode as a graph (needs 'dot' and 'feh')"
   +> flag "-eval" no_arg
     ~doc:" Evaluate the given mode"
-  +> flag "-file" (optional file)
-    ~doc:"F Run against modes given in F"
+  (* +> flag "-file" (optional file) *)
+  (*   ~doc:"F Run against modes given in F" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file debug () =
+let run_check mode decode tag check display eval debug () =
   Utils.debug_config debug;
   let mode =
     match mode with
@@ -69,42 +68,29 @@ let run_check mode decode tag check display eval file debug () =
         match decode, tag with
         | Some decode, Some tag -> Modes.create decode tag
         | None, _ ->
-          eprintf "Error: decode algorithm is missing!\n%!";
-          exit 1
+          eprintf "Error: decode algorithm is missing.\n%!"; exit 1
         | _, None ->
-          eprintf "Error: tag algorithm is missing!\n%!";
-          exit 1
+          eprintf "Error: tag algorithm is missing.\n%!"; exit 1
       end
-  in
-  let str_to_mode mode =
-    let f str phase =
-      let f str phase =
-        let open Or_error.Monad_infix in
-        AeInst.from_string_block str
-        >>= fun block ->
-        AeInst.validate block phase
-        >>= fun () ->
-        AeGraph.create block phase
-      in
-      match f str phase with
-      | Ok graph -> graph
-      | Error err ->
-        eprintf "Error: %s\n%!" (Error.to_string_hum err);
-        exit 1
-    in
-    let decode = f (Modes.decode_string mode) Decode in
-    let tag = f (Modes.tag_string mode) Tag in
-    match AeGraph.derive_encode_graph decode with
-    | Ok encode ->
-      { encode = encode; decode = decode; tag = tag }
-    | Error err ->
-      eprintf "Error: %s\n%!" (Error.to_string_hum err);
-      exit 1
   in
   let run mode =
     Log.info "Checking [%s] [%s]" (Modes.decode_string mode)
       (Modes.tag_string mode);
-    let mode = str_to_mode mode in
+    let open Or_error.Monad_infix in
+    let f str phase =
+      AeInst.from_string_block str
+      >>= fun block ->
+      AeInst.validate block phase
+      >>= fun () ->
+      AeGraph.create block phase
+    in
+    f (Modes.decode_string mode) Decode
+    >>= fun decode ->
+    f (Modes.decode_string mode) Tag
+    >>= fun tag ->
+    AeGraph.derive_encode_graph decode
+    >>= fun encode ->
+    let mode = { encode = encode; decode = decode; tag = tag } in
     if check then begin
       let f g = AeGraph.is_secure g in
       let r = f mode.encode && f mode.decode && f mode.tag in
@@ -121,11 +107,11 @@ let run_check mode decode tag check display eval file debug () =
       AeGraph.display_with_feh mode.tag
     end;
     if not check && not eval && not display then
-      eprintf "One of -check, -display, or -eval must be used\n%!"
+      eprintf "One of -check, -display, or -eval must be used\n%!"; exit 1
   in
-  match file with
-  | None -> run mode
-  | Some file -> failwith "not implemented yet"
+  match run mode with
+  | Ok _ -> ()
+  | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err); exit 1
 
 let spec_synth =
   let size = 11 in
@@ -148,9 +134,10 @@ let run_synth all size print debug () =
   if print then
     AeInst.print_modes found size;
   printf "# found modes: %d\n" (List.length found);
-  for i = 1 to size do
-    printf "# modes of size %d = %d\n%!" i (AeInst.count found i)
-  done
+  if all then
+    for i = 10 to size do
+      printf "# modes of size %d = %d\n%!" i (AeInst.count found i)
+    done
 
 let check =
   Command.basic

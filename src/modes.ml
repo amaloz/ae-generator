@@ -46,6 +46,8 @@ let modes =
     "XCBC", xcbc
   ]
 
+let modes_string = String.Map.keys modes |> String.concat ~sep:", "
+
 let create decode tag = { decode_s = decode; tag_s = tag }
 
 let decode_string t = t.decode_s
