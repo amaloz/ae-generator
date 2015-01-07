@@ -1,15 +1,12 @@
 open Core.Std
 open AeOps
 
-(* Check if a mode already exists in duplicate items table 'tbl'. *)
-let exists ?(keep_dups=false) tbl g =
-  if keep_dups then false
-  else
-    let r = AeGraph.eval g in
-    Log.info "Result = %s\n" r;
-    match Hashtbl.add tbl ~key:r ~data:r with
-    | `Duplicate -> true
-    | `Ok -> false
+let exists_decode tbl decode =
+  let r = AeGraph.eval decode in
+  Log.info "Result = %s\n" r;
+  match Hashtbl.add tbl ~key:r ~data:r with
+  | `Duplicate -> true
+  | `Ok -> false
 
 let gen ?(all=false) size insts tbl phase =
   let _gen depth counts tbl phase =
@@ -20,23 +17,22 @@ let gen ?(all=false) size insts tbl phase =
       let decode = AeGraph.create block phase |> ok_exn in
       if AeGraph.is_secure decode then
         begin
-          printf "Secure decode: [%s]\n%!" (string_of_op_list block);
+          Log.info "  Secure decode";
           match AeGraph.derive_encode_graph decode with
           | Ok encode ->
             if AeGraph.is_secure encode then
               begin
-                Log.info "It works!";
+                Log.info "  It works!";
                 printf "Secure: [%s]\n%!" (string_of_op_list block);
-                exit 1;
-                if exists tbl decode then
-                  Log.info "already exists..."
+                if exists_decode tbl decode then
+                  Log.info "  Already exists..."
                 else
                   blocks := block :: !blocks
               end
             else
-              printf "Encode graph insecure\n%!";
+              Log.info "  Encode graph insecure";
           | Error _ ->
-            printf "Unable to derive encode graph\n%!"
+            Log.info "  Unable to derive encode graph"
         end
     in
     let rec iter depth ninputs block counts i =

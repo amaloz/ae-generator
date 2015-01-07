@@ -40,12 +40,6 @@ module Weight = struct
 end
 module Dijkstra = Graph.Path.Dijkstra(G)(Weight)
 
-module V' = struct
-  type t = AeOps.instruction * string
-end
-module G' = Graph.Imperative.Digraph.Abstract(V')
-module Topo' = Graph.Topological.Make(G')
-
 let string_of_v v =
   let inst, _, _ = G.V.label v in
   string_of_instruction inst
@@ -76,57 +70,65 @@ let find_vertex_by_inst g inst =
 
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
+exception Stack_error of string
+
 let create block phase =
   let s = Stack.create () in
   let g = G.create () in
-  let checks = ref [] in
-  let f inst =
-    match inst with
-    | Instruction i ->
-      let dst = G.V.create (i, ref None, ref "") in
-      G.add_vertex g dst;
-      for j = 1 to AeInst.n_in inst do
-        let src = Stack.pop_exn s in
-        let e = G.E.create src () dst in
-        G.add_edge_e g e;
-      done;
-      for j = 1 to AeInst.n_out inst do
-        Stack.push s dst
-      done;
-      (* Construct list of nodes to check *)
-      begin
+  let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
+  let f acc op =
+    match op with
+    | Instruction i -> begin
+        let dst = G.V.create (i, ref None, ref "") in
+        G.add_vertex g dst;
+        for j = 1 to AeInst.n_in op do
+          match Stack.pop s with
+          | Some src ->
+            let e = G.E.create src () dst in
+            G.add_edge_e g e;
+          | None -> raise (Stack_error (errmsg op))
+        done;
+        for j = 1 to AeInst.n_out op do
+          Stack.push s dst
+        done;
+        (* Construct list of nodes to check *)
+
         match phase with
         | Encode ->
-          if i = Out1 || i = Out2 then
-            checks := dst :: !checks
+          if i = Out1 || i = Out2 then dst :: acc else acc
         | Decode ->
-          if i = Fin1 then
-            checks := [dst]
+          if i = Fin1 then [dst] else acc
         | Tag ->
-          if i = Out1 then
-            checks := [dst]
+          if i = Out1 then [dst] else acc
       end
     | StackInstruction i ->
       begin
         match i with
         | Swap ->
-          let first = Stack.pop_exn s in
-          let second = Stack.pop_exn s in
-          Stack.push s first;
-          Stack.push s second
+          if Stack.length s < 2 then
+            raise (Stack_error (errmsg op))
+          else
+            let first = Stack.pop_exn s in
+            let second = Stack.pop_exn s in
+            Stack.push s first;
+            Stack.push s second
         | Twoswap ->
-          let first = Stack.pop_exn s in
-          let second = Stack.pop_exn s in
-          let third = Stack.pop_exn s in
-          Stack.push s first;
-          Stack.push s second;
-          Stack.push s third
-      end
+          if Stack.length s < 3 then
+            raise (Stack_error (errmsg op))
+          else
+            let first = Stack.pop_exn s in
+            let second = Stack.pop_exn s in
+            let third = Stack.pop_exn s in
+            Stack.push s first;
+            Stack.push s second;
+            Stack.push s third
+      end;
+      acc
   in
   try
-    List.iter block f;
-    Ok { g = g; phase = phase; checks = !checks }
-  with e -> Or_error.of_exn e
+    let checks = List.fold block ~init:[] ~f:f in
+    Ok { g = g; phase = phase; checks = checks }
+  with Stack_error msg -> Or_error.error_string msg
 
 let display_with_feh t =
   let module Display = struct
@@ -173,15 +175,17 @@ let display_with_feh t =
   ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
   Sys.remove tmp
 
+let cipher = new Cryptokit.Block.aes_encrypt "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
+
 let eval t =
-  (* let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in *)
-  (* let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s *)
-  (*                  |> String.uppercase in *)
+  let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
+  let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s
+                   |> String.uppercase in
   let chr = function
     | 0 -> '0' | 1 -> '1' | 2 -> '2' | 3 -> '3' | 4 -> '4' | 5 -> '5'
     | 6 -> '6' | 7 -> '7' | 8 -> '8' | 9 -> '9' | 10 -> 'A' | 11 -> 'B'
     | 12 -> 'C' | 13 -> 'D' | 14 -> 'E' | 15 -> 'F'
-    | _ -> failwith "Fatal: invalid character"
+    | _ -> failwith "Fatal: invalid integer"
   in
   let ord = function
     | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5
@@ -191,13 +195,9 @@ let eval t =
   in
   let xor s s' =
     let xor c c' = chr ((ord c) lxor (ord c')) in
-    let r = String.create 32 in
-    for i = 0 to 32 - 1 do
-      r.[i] <- xor s.[i] s'.[i]
-    done;
-    r
+    String.mapi s (fun i c -> xor c s'.[i])
   in
-  let out = ref [] in
+  let fin1, fin2, out1, out2 = ref "", ref "", ref "", ref "" in
   let f v =
     let inst, _, s = G.V.label v in
     match inst with
@@ -208,17 +208,27 @@ let eval t =
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
       let _, _, s' = G.pred t.g v |> List.hd_exn |> G.V.label in
       s := !s';
-      if inst = Fin1 || inst = Fin2 || inst = Out1 || inst = Out2 then
-        out := !s :: !out
+      begin
+        match inst with
+        | Fin1 -> fin1 := !s
+        | Fin2 -> fin2 := !s
+        | Out1 -> out1 := !s
+        | Out2 -> out2 := !s
+        | _ -> ()
+      end
     | Xor ->
       let ps = G.pred t.g v in
       let _, _, s1 = List.nth_exn ps 0 |> G.V.label in
       let _, _, s2 = List.nth_exn ps 1 |> G.V.label in
       s := xor !s1 !s2
-    | Tbc -> failwith "not implemented yet"
+    | Tbc ->
+      let _, _, s' = G.pred t.g v |> List.hd_exn |> G.V.label in
+      let r = String.create 16 in
+      cipher#transform (ofhexstr !s') 0 r 0;
+      s := tohexstr r
   in
   Topo.iter f t.g;
-  String.concat ~sep:" " !out
+  String.concat ~sep:" " [!fin1; !fin2; !out1; !out2]
 
 let create_encode_graph t =
   let g = G.create () in
@@ -279,37 +289,41 @@ let derive_encode_graph t =
   Log.info "Deriving encoding graph";
   assert (t.phase = Decode);
   let mark_path msg out =
-    let path, _ = Dijkstra.shortest_path t.g msg out in
     let f e =
       G.Mark.set (G.E.src e) (-1);
       G.Mark.set (G.E.dst e) (-1)
     in
-    List.iter path f
+    try
+      let path, _ = Dijkstra.shortest_path t.g msg out in
+      List.iter path f;
+      Ok ()
+    with _ -> Or_error.error_string
+                (sprintf "No path from %s to %s" (string_of_v msg)
+                   (string_of_v out))
   in
   G.Mark.clear t.g;
   let open Or_error.Monad_infix in
-  begin
-    try
-      mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
+  Or_error.combine_errors_unit
+    [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
       mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
-      Ok ()
-    with _ -> Or_error.error_string "Unable to derive encode graph"
-  end
+    ]
   >>= fun () -> 
   create_encode_graph t |> Or_error.return
 
-let clear t =
-  let f v =
-    let _, map, _ = G.V.label v in
-    map := None
-  in
-  Topo.iter f t.g
 
 let check t types rand checks =
-  Log.info "Checking %s %b..." (List.to_string string_of_typ types) rand;
+  Log.info "Checking %s %b" (List.to_string string_of_typ types) rand;
+  (* Clear maps on graph vertices *)
+  let clear g =
+    let f v =
+      let _, map, _ = G.V.label v in
+      map := None
+    in
+    Topo.iter f g
+  in
   let max_ctr = ref 0 in
   let s = Stack.of_list types in
-  clear t;
+  clear t.g;
   let f inst typ =
     let _, map, _ = find_vertex_by_inst t.g inst |> G.V.label in
     let f = function
@@ -386,11 +400,7 @@ let check t types rand checks =
     | Some map -> map.typ = Rand
     | None -> false
   in
-  match t.phase with
-  | Encode | Tag ->
-    List.for_all checks f
-  | Decode ->
-    List.exists checks f
+  List.for_all checks f
 
 let is_secure_encode t =
   check t [Bot; Bot; Bot; Bot] true t.checks
@@ -416,7 +426,7 @@ let is_secure_tag t =
   && check t [Rand; One] false t.checks
 
 let is_secure t =
-  Log.info "Checking security of %s graph:" @@ string_of_phase t.phase;
+  Log.info "Checking security of %s graph" @@ string_of_phase t.phase;
   match t.phase with
   | Encode -> is_secure_encode t
   | Decode -> is_secure_decode t

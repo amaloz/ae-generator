@@ -5,8 +5,13 @@ let version = "0.1"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
-let all_instructions =
-  ["MSG1"; "MSG2"; "INI1"; "INI2"; "FIN1"; "FIN2"; "OUT1"; "OUT2"; "DUP"; "XOR"; "TBC"]
+let all_instructions = [
+  "MSG1"; "MSG2";
+  "INI1"; "INI2";
+  "FIN1"; "FIN2";
+  "OUT1"; "OUT2";
+  "DUP"; "XOR"; "TBC"
+]
 
 let debug =
   Command.Spec.Arg_type.create
