@@ -15,18 +15,28 @@ let gen ?(all=false) size insts tbl phase =
   let _gen depth counts tbl phase =
     Log.debug "Generating modes of size %d" depth;
     let blocks = ref [] in
-    let process block =
+    let process_decode block =
       Log.info "Trying [%s]" (string_of_op_list block);
-      let g = AeGraph.create block phase in
-      if AeGraph.is_secure g then
+      let decode = AeGraph.create block phase |> ok_exn in
+      if AeGraph.is_secure decode then
         begin
-          Log.info "It works!";
-          printf "[%s]\n%!" (string_of_op_list block);
-          exit 1;
-          if exists tbl g then
-            Log.info "already exists..."
-          else
-            blocks := block :: !blocks
+          printf "Secure decode: [%s]\n%!" (string_of_op_list block);
+          match AeGraph.derive_encode_graph decode with
+          | Ok encode ->
+            if AeGraph.is_secure encode then
+              begin
+                Log.info "It works!";
+                printf "Secure: [%s]\n%!" (string_of_op_list block);
+                exit 1;
+                if exists tbl decode then
+                  Log.info "already exists..."
+                else
+                  blocks := block :: !blocks
+              end
+            else
+              printf "Encode graph insecure\n%!";
+          | Error _ ->
+            printf "Unable to derive encode graph\n%!"
         end
     in
     let rec iter depth ninputs block counts i =
@@ -54,7 +64,12 @@ let gen ?(all=false) size insts tbl phase =
         (* Log.info "Hit bottom... [%s]" (string_of_op_list (List.rev block)); *)
         let block = List.rev block in
         if ninputs = 0 && AeInst.is_valid block then
-          process block
+          begin
+            match phase with
+            | Decode -> process_decode block
+            | Encode -> failwith "cannot generate encode graphs"
+            | Tag -> failwith "generating tag graphs not yet implemented"
+          end
       | _ when depth > 0 ->
         List.iter insts (iter depth ninputs block counts)
       | _ -> ()

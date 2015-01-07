@@ -123,8 +123,10 @@ let create block phase =
           Stack.push s third
       end
   in
-  List.iter block f;
-  { g = g; phase = phase; checks = !checks }
+  try
+    List.iter block f;
+    Ok { g = g; phase = phase; checks = !checks }
+  with e -> Or_error.of_exn e
 
 let display_with_feh t =
   let module Display = struct
@@ -274,7 +276,7 @@ let create_encode_graph t =
   { g = g; phase = Encode; checks = checks }
 
 let derive_encode_graph t =
-  Log.info "Deriving encoding graph...";
+  Log.info "Deriving encoding graph";
   assert (t.phase = Decode);
   let mark_path msg out =
     let path, _ = Dijkstra.shortest_path t.g msg out in
@@ -285,9 +287,16 @@ let derive_encode_graph t =
     List.iter path f
   in
   G.Mark.clear t.g;
-  mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
-  mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
-  create_encode_graph t
+  let open Or_error.Monad_infix in
+  begin
+    try
+      mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
+      mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
+      Ok ()
+    with _ -> Or_error.error_string "Unable to derive encode graph"
+  end
+  >>= fun () -> 
+  create_encode_graph t |> Or_error.return
 
 let clear t =
   let f v =
@@ -407,6 +416,7 @@ let is_secure_tag t =
   && check t [Rand; One] false t.checks
 
 let is_secure t =
+  Log.info "Checking security of %s graph:" @@ string_of_phase t.phase;
   match t.phase with
   | Encode -> is_secure_encode t
   | Decode -> is_secure_decode t

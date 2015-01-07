@@ -79,7 +79,7 @@ let run_check mode decode tag check display eval file debug () =
         >>= fun block ->
         AeInst.validate block phase
         >>= fun () ->
-        AeGraph.create block phase |> Or_error.return
+        AeGraph.create block phase
       in
       match f str phase with
       | Ok graph -> graph
@@ -89,8 +89,12 @@ let run_check mode decode tag check display eval file debug () =
     in
     let decode = f (Modes.decode_string mode) Decode in
     let tag = f (Modes.tag_string mode) Tag in
-    let encode = AeGraph.derive_encode_graph decode in
-    { encode = encode; decode = decode; tag = tag }
+    match AeGraph.derive_encode_graph decode with
+    | Ok encode ->
+      { encode = encode; decode = decode; tag = tag }
+    | Error err ->
+      eprintf "Error: %s\n%!" (Error.to_string_hum err);
+      exit 1
   in
   let run mode =
     Log.info "Checking [%s] [%s]" (Modes.decode_string mode)
