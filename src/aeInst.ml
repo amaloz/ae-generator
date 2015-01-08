@@ -31,6 +31,21 @@ let n_out = function
   | StackInstruction Swap -> 2
   | StackInstruction Twoswap -> 3
 
+let n_diff = function
+  | Instruction Msg1 -> 1
+  | Instruction Msg2 -> 1
+  | Instruction Ini1 -> 1
+  | Instruction Ini2 -> 1
+  | Instruction Fin1 -> -1
+  | Instruction Fin2 -> -1
+  | Instruction Out1 -> -1
+  | Instruction Out2 -> -1
+  | Instruction Dup -> 1
+  | Instruction Xor -> -1
+  | Instruction Tbc -> 0
+  | StackInstruction Swap -> 0
+  | StackInstruction Twoswap -> 0
+
 let from_string s =
   match String.uppercase s with
   | "MSG1" -> Ok (Instruction Msg1)
@@ -66,11 +81,14 @@ let count found size =
 
 let print_modes found maxsize =
   for i = 1 to maxsize do
-    Printf.printf "# modes of length %d:\n" i;
     let l = List.filter found (fun block -> block_length block = i) in
     let l = List.map l (fun block -> string_of_op_list block) in
     let l = List.sort ~cmp:String.compare l in
-    List.iter l (fun block -> Printf.printf "%s\n" block);
+    if List.length l > 0 then
+      begin
+        Printf.printf "modes of length %d:\n" i;
+        List.iter l (fun block -> Printf.printf "%s\n" block)
+      end
   done
 
 let validate block phase =

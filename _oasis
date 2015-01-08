@@ -11,7 +11,7 @@ Synopsis: Authenticated encryption scheme generator
 Description:
 
 AlphaFeatures: ocamlbuild_more_args
-XOCamlbuildExtraArgs: -cflags "-safe-string"
+XOCamlbuildExtraArgs: -cflag -safe-string
 
 BuildDepends: dolog,
               cryptokit,
@@ -23,4 +23,4 @@ Executable aegenerator
   Path:           .
   BuildTools:     ocamlbuild
   MainIs:         src/main.ml
-  CompiledObject: byte
+  CompiledObject: native

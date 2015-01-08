@@ -22,6 +22,19 @@ type stackInstruction =
   | Swap
   | Twoswap
 
+type op =
+  | Instruction of instruction
+  | StackInstruction of stackInstruction
+
+let all_ops = [
+  "MSG1"; "MSG2";
+  "INI1"; "INI2";
+  "FIN1"; "FIN2";
+  "OUT1"; "OUT2";
+  "DUP"; "XOR"; "TBC";
+  "SWAP"; "2SWAP"
+]
+
 let string_of_phase = function
   | Encode -> "Encode"
   | Decode -> "Decode"
@@ -43,10 +56,6 @@ let string_of_instruction = function
 let string_of_stack_instruction = function
   | Swap -> "SWAP"
   | Twoswap -> "2SWAP"
-
-type op =
-  | Instruction of instruction
-  | StackInstruction of stackInstruction
 
 let string_of_op = function
   | Instruction i -> string_of_instruction i

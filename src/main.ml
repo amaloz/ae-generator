@@ -5,14 +5,6 @@ let version = "0.1"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
-let all_instructions = [
-  "MSG1"; "MSG2";
-  "INI1"; "INI2";
-  "FIN1"; "FIN2";
-  "OUT1"; "OUT2";
-  "DUP"; "XOR"; "TBC"
-]
-
 let debug =
   Command.Spec.Arg_type.create
     (fun s ->
@@ -86,7 +78,7 @@ let run_check mode decode tag check display eval debug () =
     in
     f (Modes.decode_string mode) Decode
     >>= fun decode ->
-    f (Modes.decode_string mode) Tag
+    f (Modes.tag_string mode) Tag
     >>= fun tag ->
     AeGraph.derive_encode_graph decode
     >>= fun encode ->
@@ -127,15 +119,14 @@ let spec_synth =
 
 let run_synth all size print debug () =
   Utils.debug_config debug;
-  let insts = List.map all_instructions (fun i -> AeInst.from_string i)
-              |> Or_error.combine_errors |> ok_exn in
   let tbl = String.Table.create () ~size:1024 in
-  let found = AeGeneration.gen ~all:all size insts tbl Decode in
+  let found = AeGeneration.gen ~all:all size tbl Decode in
   if print then
     AeInst.print_modes found size;
   printf "# found modes: %d\n" (List.length found);
   if all then
-    for i = 10 to size do
+    let minsize = min AeGeneration.minsize size in
+    for i = minsize to size do
       printf "# modes of size %d = %d\n%!" i (AeInst.count found i)
     done
 
@@ -147,7 +138,7 @@ Proves a given authenticated encryption scheme secure.  The user can either
 input an existing mode using the -mode flag, or input their own mode using the
 -decode and -tag flags using following instructions:
 
-  %s" (String.concat ~sep:", " all_instructions))
+  %s" (String.concat ~sep:", " all_ops))
     spec_check
     run_check
 

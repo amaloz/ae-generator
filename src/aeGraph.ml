@@ -92,7 +92,6 @@ let create block phase =
           Stack.push s dst
         done;
         (* Construct list of nodes to check *)
-
         match phase with
         | Encode ->
           if i = Out1 || i = Out2 then dst :: acc else acc
@@ -126,7 +125,7 @@ let create block phase =
       acc
   in
   try
-    let checks = List.fold block ~init:[] ~f:f in
+    let checks = List.fold block ~init:[] ~f in
     Ok { g = g; phase = phase; checks = checks }
   with Stack_error msg -> Or_error.error_string msg
 
@@ -230,7 +229,11 @@ let eval t =
       s := tohexstr r
   in
   Topo.iter f t.g;
-  String.concat ~sep:" " [!fin1; !fin2; !out1; !out2]
+  match t.phase with
+  | Encode | Decode ->
+    String.concat ~sep:" " [!fin1; !fin2; !out1; !out2]
+  | Tag ->
+    !out1
 
 let create_encode_graph t =
   let g = G.create () in
@@ -315,26 +318,15 @@ let derive_encode_graph t =
 
 let check t types rand checks =
   Log.info "Checking %s %b" (List.to_string string_of_typ types) rand;
-  (* Clear maps on graph vertices *)
-  let clear g =
-    let f v =
-      let _, map, _ = G.V.label v in
-      map := None
-    in
-    Topo.iter f g
-  in
   let max_ctr = ref 0 in
-  let s = Stack.of_list types in
-  clear t.g;
-  let f inst typ =
-    let _, map, _ = find_vertex_by_inst t.g inst |> G.V.label in
-    let f = function
-      | Rand -> max_ctr := 1; 1
-      | _ -> 0 in
-    let typ = Stack.pop_exn s in
-    map := Some { typ = typ; ctr = f typ }
-  in
   begin
+    let f inst typ =
+      let _, map, _ = find_vertex_by_inst t.g inst |> G.V.label in
+      let f = function
+        | Rand -> max_ctr := 1; 1
+        | _ -> 0 in
+      map := Some { typ = typ; ctr = f typ }
+    in
     match t.phase with
     | Encode | Decode ->
       List.iter2_exn [Ini1; Ini2; Msg1; Msg2] types f
@@ -343,66 +335,65 @@ let check t types rand checks =
   end;
   let f v =
     let inst, _, _ = G.V.label v in
-    match inst with
-    | Msg1 | Msg2 | Ini1 | Ini2 ->
-      Log.debug "%s" (full_string_of_v v)
-    | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-      let p = G.pred t.g v |> List.hd_exn in
-      let _, pmap,_  = G.V.label p in
-      let _, map, _ = G.V.label v in
-      map := !pmap;
-      Log.debug "%s" (full_string_of_v v)
-    | Tbc ->
-      let p = G.pred t.g v |> List.hd_exn in
-      let _, pmap, _ = G.V.label p in
-      let _, map, _ = G.V.label v in
-      let pmap = Option.value_exn !pmap in
-      if pmap.typ = One || pmap.typ = Rand || rand then
-        begin
-          max_ctr := !max_ctr + 1;
-          map := Some { typ = Rand; ctr = !max_ctr }
-        end
-      else
-        map := Some pmap;
-      Log.debug "%s" (full_string_of_v v)
-    | Xor ->
-      let ps = G.pred t.g v in
-      let p1, p2 =
-        if List.length ps = 1 then
-          List.nth_exn ps 0, List.nth_exn ps 0
+    begin
+      match inst with
+      | Msg1 | Msg2 | Ini1 | Ini2 -> ()
+      | Fin1 | Fin2 | Out1 | Out2 | Dup ->
+        let p = G.pred t.g v |> List.hd_exn in
+        let _, pmap,_  = G.V.label p in
+        let _, map, _ = G.V.label v in
+        map := !pmap
+      | Tbc ->
+        let p = G.pred t.g v |> List.hd_exn in
+        let _, pmap, _ = G.V.label p in
+        let _, map, _ = G.V.label v in
+        let pmap = Option.value_exn !pmap in
+        if pmap.typ = One || pmap.typ = Rand || rand then
+          begin
+            max_ctr := !max_ctr + 1;
+            map := Some { typ = Rand; ctr = !max_ctr }
+          end
         else
-          List.nth_exn ps 0, List.nth_exn ps 1
-      in
-      let _, p1map, _ = G.V.label p1 in
-      let _, p2map, _ = G.V.label p2 in
-      let p1map = Option.value_exn !p1map in
-      let p2map = Option.value_exn !p2map in
-      let p1map, p2map =
-        if p1map.ctr < p2map.ctr then
-          p2map, p1map
+          map := Some pmap
+      | Xor ->
+        let ps = G.pred t.g v in
+        let p1, p2 =
+          if List.length ps = 1 then
+            List.nth_exn ps 0, List.nth_exn ps 0
+          else
+            List.nth_exn ps 0, List.nth_exn ps 1
+        in
+        let _, p1map, _ = G.V.label p1 in
+        let _, p2map, _ = G.V.label p2 in
+        let p1map = Option.value_exn !p1map in
+        let p2map = Option.value_exn !p2map in
+        let p1map, p2map =
+          if p1map.ctr < p2map.ctr then
+            p2map, p1map
+          else
+            p1map, p2map
+        in
+        let _, map, _ = G.V.label v in
+        if (p1map.typ = Zero && p2map.typ = Zero)
+        || (p1map.typ = Zero && p2map.typ = One)
+        || (p1map.typ = One && p2map.typ = Zero) then
+          map := Some { typ = xor_types p1map.typ p2map.typ; ctr = p1map.ctr }
+        else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
+          map := Some { typ = Rand; ctr = p1map.ctr }
         else
-          p1map, p2map
-      in
-      let _, map, _ = G.V.label v in
-      if (p1map.typ = Zero && p2map.typ = Zero)
-      || (p1map.typ = Zero && p2map.typ = One)
-      || (p1map.typ = One && p2map.typ = Zero) then
-        map := Some { typ = xor_types p1map.typ p2map.typ; ctr = p1map.ctr }
-      else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
-        map := Some { typ = Rand; ctr = p1map.ctr }
-      else
-        map := Some { typ = Bot; ctr = p1map.ctr };
-      Log.debug "%s" (full_string_of_v v)
+          map := Some { typ = Bot; ctr = p1map.ctr }
+    end;
+    Log.debug "%s" (full_string_of_v v)
   in
   Topo.iter f t.g;
   (* Check that all nodes needing to be random are indeed marked random *)
-  let f check =
-    let _, map, _ = G.V.label check in
+  let f v =
+    let _, map, _ = G.V.label v in
     match !map with
     | Some map -> map.typ = Rand
     | None -> false
   in
-  List.for_all checks f
+  List.for_all checks ~f
 
 let is_secure_encode t =
   check t [Bot; Bot; Bot; Bot] true t.checks
@@ -411,12 +402,10 @@ let is_secure_decode t =
   check t [Zero; Zero; One; Zero] false t.checks
   && check t [Zero; Zero; Zero; One] false t.checks
   && check t [Zero; Zero; One; One] false t.checks
-    
   && check t [Rand; Zero; Zero; Zero] false t.checks
   && check t [Rand; Zero; Zero; One] false t.checks
   && check t [Rand; Zero; One; Zero] false t.checks
   && check t [Rand; Zero; One; One] false t.checks
-
   && check t [Rand; One; Zero; Zero] false t.checks
   && check t [Rand; One; Zero; One] false t.checks
   && check t [Rand; One; One; Zero] false t.checks
