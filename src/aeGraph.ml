@@ -25,11 +25,15 @@ let xor_types a b =
 type map = { typ : typ; ctr : int }
 
 module V = struct
-  type t = instruction * map option ref * string ref
+  (* Each vertex contains three elements: the instruction the vertex represents,
+     a map reference for checking security of the graph, and a string reference
+     for evaluating the graph.  *)
+  (* XXX: Can we do this without storing the map ref and string ref within the
+     vertex type? *)
+  type t = instruction * map ref * string ref
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
-module Oper = Graph.Oper.I(G)
 module Weight = struct
   type label = G.E.label
   type t = int
@@ -40,6 +44,9 @@ module Weight = struct
 end
 module Dijkstra = Graph.Path.Dijkstra(G)(Weight)
 
+module VEval = struct type t = string ref end
+module GEval = Graph.Imperative.Digraph.Abstract(VEval)
+
 let string_of_v v =
   let inst, _, _ = G.V.label v in
   string_of_instruction inst
@@ -47,16 +54,13 @@ let string_of_v v =
 let string_of_e e =
   let src, _, _ = G.E.src e |> G.V.label in
   let dst, _, _ = G.E.dst e |> G.V.label in
-  String.concat ~sep:" -> " [string_of_instruction src; string_of_instruction dst]
+  [string_of_instruction src; string_of_instruction dst]
+  |> String.concat ~sep:" -> "
 
 let full_string_of_v v =
   let _, map, _ = G.V.label v in
-  let l = match !map with
-    | Some map ->
-      [string_of_typ map.typ; Int.to_string map.ctr]
-    | None -> []
-  in
-  List.append [string_of_v v] l |> String.concat ~sep:" " 
+  [string_of_typ !map.typ; Int.to_string !map.ctr]
+  |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
   let f v r =
@@ -79,7 +83,7 @@ let create block phase =
   let f acc op =
     match op with
     | Instruction i -> begin
-        let dst = G.V.create (i, ref None, ref "") in
+        let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }, ref "") in
         G.add_vertex g dst;
         for j = 1 to AeInst.n_in op do
           match Stack.pop s with
@@ -257,7 +261,7 @@ let create_encode_graph t =
         | Out2 -> Msg2
         | Ini1 | Ini2 | Fin1 | Fin2 | Dup | Xor | Tbc as i -> i
       in
-      let v' = G.V.create (inst', ref None, ref "") in
+      let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }, ref "") in
       G.add_vertex g v';
       let checks =
         match inst' with
@@ -315,7 +319,6 @@ let derive_encode_graph t =
   >>= fun () -> 
   create_encode_graph t |> Or_error.return
 
-
 let check t types rand checks =
   Log.info "Checking %s %b" (List.to_string string_of_typ types) rand;
   let max_ctr = ref 0 in
@@ -325,7 +328,7 @@ let check t types rand checks =
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
-      map := Some { typ = typ; ctr = f typ }
+      map := { typ = typ; ctr = f typ }
     in
     match t.phase with
     | Encode | Decode ->
@@ -347,14 +350,13 @@ let check t types rand checks =
         let p = G.pred t.g v |> List.hd_exn in
         let _, pmap, _ = G.V.label p in
         let _, map, _ = G.V.label v in
-        let pmap = Option.value_exn !pmap in
-        if pmap.typ = One || pmap.typ = Rand || rand then
+        if !pmap.typ = One || !pmap.typ = Rand || rand then
           begin
             max_ctr := !max_ctr + 1;
-            map := Some { typ = Rand; ctr = !max_ctr }
+            map := { typ = Rand; ctr = !max_ctr }
           end
         else
-          map := Some pmap
+          map := !pmap
       | Xor ->
         let ps = G.pred t.g v in
         let p1, p2 =
@@ -365,23 +367,21 @@ let check t types rand checks =
         in
         let _, p1map, _ = G.V.label p1 in
         let _, p2map, _ = G.V.label p2 in
-        let p1map = Option.value_exn !p1map in
-        let p2map = Option.value_exn !p2map in
         let p1map, p2map =
-          if p1map.ctr < p2map.ctr then
+          if !p1map.ctr < !p2map.ctr then
             p2map, p1map
           else
             p1map, p2map
         in
         let _, map, _ = G.V.label v in
-        if (p1map.typ = Zero && p2map.typ = Zero)
-        || (p1map.typ = Zero && p2map.typ = One)
-        || (p1map.typ = One && p2map.typ = Zero) then
-          map := Some { typ = xor_types p1map.typ p2map.typ; ctr = p1map.ctr }
-        else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
-          map := Some { typ = Rand; ctr = p1map.ctr }
+        if (!p1map.typ = Zero && !p2map.typ = Zero)
+        || (!p1map.typ = Zero && !p2map.typ = One)
+        || (!p1map.typ = One && !p2map.typ = Zero) then
+          map := { typ = xor_types !p1map.typ !p2map.typ; ctr = !p1map.ctr }
+        else if !p1map.typ = Rand && !p1map.ctr > !p2map.ctr then
+          map := { typ = Rand; ctr = !p1map.ctr }
         else
-          map := Some { typ = Bot; ctr = p1map.ctr }
+          map := { typ = Bot; ctr = !p1map.ctr }
     end;
     Log.debug "%s" (full_string_of_v v)
   in
@@ -389,9 +389,7 @@ let check t types rand checks =
   (* Check that all nodes needing to be random are indeed marked random *)
   let f v =
     let _, map, _ = G.V.label v in
-    match !map with
-    | Some map -> map.typ = Rand
-    | None -> false
+    !map.typ = Rand
   in
   List.for_all checks ~f
 

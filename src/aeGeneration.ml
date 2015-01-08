@@ -73,7 +73,18 @@ let gen ?(all=false) size tbl phase =
         else
           acc
       | _ when depth > 0 ->
-        List.fold ops ~init:acc ~f:(fold depth ninputs block counts)
+        if depth = size - 2 then begin
+          printf "Finding modes starting with %s...\n%!"
+            (List.map (List.rev block) string_of_op |> String.concat ~sep:" ");
+          let start = Time.now () in
+          let blocks = List.fold ops ~init:acc
+              ~f:(fold depth ninputs block counts) in
+          let stop = Time.now () in
+          printf "  Took: %s\n%!" (Time.diff stop start |> Time.Span.to_string);
+          blocks
+        end
+        else
+          List.fold ops ~init:acc ~f:(fold depth ninputs block counts)
       | _ -> acc
     in
     List.fold initial ~init:[] ~f:(fold depth 0 [] counts)

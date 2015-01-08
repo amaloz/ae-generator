@@ -136,14 +136,14 @@ let is_valid block =
   && List.count block (eq Out2) = 1
   && List.exists block (eq Tbc)
 
-let is_pruneable i block =
-  let cmp_prev i prev =
-    let p i = prev = Instruction i in
-    let ps i = prev = StackInstruction i in
-    match i with
-    | Instruction i ->
+let is_pruneable op block =
+  let cmp_prev cur prev =
+    let p cur = prev = Instruction cur in
+    let ps cur = prev = StackInstruction cur in
+    match cur with
+    | Instruction cur ->
       begin
-        match i with
+        match cur with
         | Out1 | Out2 -> p Msg1 || p Msg2
         | Fin1 -> p Ini2
         | Fin2 -> p Ini1 
@@ -151,13 +151,13 @@ let is_pruneable i block =
         | Xor -> p Dup
         | _ -> false
       end
-    | StackInstruction i ->
+    | StackInstruction cur ->
       begin
-        match i with
+        match cur with
         | Swap -> p Dup || ps Swap
         | Twoswap -> ps Twoswap
       end
   in
   match block with
-  | hd :: _ -> cmp_prev i hd
+  | hd :: _ -> cmp_prev op hd
   | [] -> false
