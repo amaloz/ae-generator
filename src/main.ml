@@ -1,5 +1,4 @@
 open Core.Std
-module DLog = Log
 open Async.Std
 open Async_parallel.Std
 open AeOps
@@ -10,35 +9,34 @@ let version = "0.1"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
+let create_log n =
+  let level = match n with
+    | 0 -> `Error
+    | 1 -> `Info
+    | _ -> `Debug
+  in
+  Log.Global.set_level level
+  (* Log.create level [Log.Output.stdout ()] *)
+
 let debug =
-  Command.Spec.Arg_type.create
-    (fun s ->
-       let i = Int.of_string s in
-       if i >= 0 && i <= 4 then i
-       else begin
-         failwith "Error: debug value out of range."
-         (* eprintf "Error: debug value out of range.\n%!"; exit 1 *)
-       end
-    )
+  Command.Spec.Arg_type.create (fun s ->
+      let i = Int.of_string s in
+      if i >= 0 && i <= 2 then i
+      else failwith "Error: debug value out of range.")
 
 let mode =
-  Command.Spec.Arg_type.create
-    (fun s ->
-       match String.Map.find Modes.modes (String.uppercase s) with
-       | Some mode -> mode
-       | None ->
-         failwith (sprintf "Error: unknown mode '%s'. Available modes: %s."
-                     s Modes.modes_string);
-         (* eprintf "Error: unknown mode '%s'. Available modes: %s.\n%!" s *)
-         (*   Modes.modes_string; *)
-         (* exit 1 *)
-    )
+  Command.Spec.Arg_type.create (fun s ->
+      match String.Map.find Modes.modes (String.uppercase s) with
+      | Some mode -> mode
+      | None ->
+        failwithf "Error: unknown mode '%s'. Available modes: %s."
+          s Modes.modes_string ())
 
-let spec_common =
-  let open Command.Spec in
-  empty
-  +> flag "-debug" (optional_with_default 0 int (* debug *))
-    ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
+(* let spec_common = *)
+(*   let open Command.Spec in *)
+(*   empty *)
+(*   +> flag "-debug" (optional_with_default 0 debug) *)
+(*     ~doc:"N Set debug level to N (0 ≤ N ≤ 4)" *)
 
 let spec_check =
   let open Command.Spec in
@@ -57,28 +55,27 @@ let spec_check =
     ~doc:" Evaluate the given mode"
   (* +> flag "-file" (optional file) *)
   (*   ~doc:"F Run against modes given in F" *)
-  ++ spec_common
+  +> flag "-debug" (optional_with_default 0 debug)
+    ~doc:"N Set debug level to N (0 ≤ N ≤ 2)"
+  (* ++ spec_common *)
 
 let run_check mode decode tag check display eval debug () =
-  Utils.debug_config debug;
-  let mode =
-    match mode with
-    | Some mode -> mode
-    | None -> begin
-        match decode, tag with
-        | Some decode, Some tag -> Modes.create decode tag
-        | None, _ ->
-          failwith "Error: decode algorithm is missing."
-          (* eprintf "Error: decode algorithm is missing.\n%!"; exit 1 *)
-        | _, None ->
-          failwith "Error: tag algorithm is missing."
-          (* eprintf "Error: tag algorithm is missing.\n%!"; exit 1 *)
-      end
-  in
+  create_log debug;
   let run mode =
-    DLog.info "Checking [%s] [%s]" (Modes.decode_string mode)
-      (Modes.tag_string mode);
     let open Or_error.Monad_infix in
+    begin
+      match mode with
+      | Some mode -> Ok mode
+      | None -> begin
+          match decode, tag with
+          | Some decode, Some tag -> Ok (Modes.create decode tag)
+          | None, _ -> Or_error.error_string "decode algorithm is missing."
+          | _, None -> Or_error.error_string "tag algorithm is missing."
+        end
+    end
+    >>= fun mode ->
+    Log.Global.info "Checking [%s] [%s]" (Modes.decode_string mode)
+      (Modes.tag_string mode);
     let f str phase =
       AeInst.from_string_block str
       >>= fun block ->
@@ -93,32 +90,45 @@ let run_check mode decode tag check display eval debug () =
     AeGraph.derive_encode_graph decode
     >>= fun encode ->
     let mode = { encode = encode; decode = decode; tag = tag } in
+    if display then begin
+      let display mode =
+        let open Async.Std in
+        AeGraph.display_with_feh mode.decode
+        >>= fun _ ->
+        AeGraph.display_with_feh mode.encode
+        >>= fun _ ->
+        AeGraph.display_with_feh mode.tag
+      in
+      let _ = display mode in ()
+    end;
     if check then begin
-      let f g = AeGraph.is_secure g in
-      let r = f mode.encode && f mode.decode && f mode.tag in
-      print_endline (if r then "yes" else "no")
+      let check mode =
+        let f g = AeGraph.is_secure g in
+        f mode.encode
+        >>= fun _ -> f mode.decode
+        >>= fun _ -> f mode.tag
+      in
+      match check mode with
+      | Ok _ -> Log.Global.printf "yes"
+      | Error _ -> Log.Global.printf "no"
     end;
     if eval then begin
-      printf "Encode = %s\n" (AeGraph.eval mode.encode);
-      printf "Decode = %s\n" (AeGraph.eval mode.decode);
-      printf "Tag    = %s\n" (AeGraph.eval mode.tag)
-    end;
-    if display then begin
-      AeGraph.display_with_feh mode.decode;
-      AeGraph.display_with_feh mode.encode;
-      AeGraph.display_with_feh mode.tag
+      let eval mode =
+        Log.Global.printf "Encode = %s" (AeGraph.eval mode.encode);
+        Log.Global.printf "Decode = %s" (AeGraph.eval mode.decode);
+        Log.Global.printf "Tag    = %s" (AeGraph.eval mode.tag)
+      in
+      eval mode
     end;
     if not check && not eval && not display then
       Or_error.error_string "One of -check, -display, or -eval must be used"
     else
       Ok ()
-      (* eprintf "One of -check, -display, or -eval must be used\n%!"; exit 1 *)
   in
   match run mode with
-  | Ok _ -> ()
-  | Error err ->
-    failwith (sprintf "Error: %s" (Error.to_string_hum err))
-    (* eprintf "Error: %s\n%!" (Error.to_string_hum err); exit 1 *)
+  | Ok _ -> Shutdown.shutdown 0; Deferred.never ()
+  | Error err -> Log.Global.error "Error: %s" (Error.to_string_hum err);
+    Shutdown.shutdown 0; Deferred.never ()
 
 let spec_synth =
   let size = 11 in
@@ -131,16 +141,16 @@ let spec_synth =
   +> flag "-print" no_arg
     ~doc:" Print found schemes to stdout"
   +> flag "-debug" (optional_with_default 0 debug)
-    ~doc:"N Set debug level to N (0 ≤ N ≤ 4)"
+    ~doc:"N Set debug level to N (0 ≤ N ≤ 2)"
   (* ++ spec_common *)
 
 let run_synth all size print debug () =
-  Utils.debug_config debug;
+  create_log debug;
   let _ = AeGeneration.gen ~all ~print size Decode in
   Deferred.never ()
 
 let check =
-  Command.basic
+  Command.async_basic
     ~summary:"Authenticated encryption scheme prover."
     ~readme:(fun () -> sprintf "\
 Proves a given authenticated encryption scheme secure.  The user can either

@@ -1,4 +1,5 @@
 open Core.Std
+open Async.Std
 open AeOps
 
 type typ =
@@ -27,7 +28,7 @@ module V = struct
      for evaluating the graph.  *)
   (* XXX: Can we do this without storing the map ref and string ref within the
      vertex type? *)
-  type t = instruction * map ref * string ref
+  type t = inst * map ref * string ref
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
@@ -43,12 +44,12 @@ module Dijkstra = Graph.Path.Dijkstra(G)(Weight)
 
 let string_of_v v =
   let inst, _, _ = G.V.label v in
-  string_of_instruction inst
+  string_of_inst inst
 
 let string_of_e e =
   let src, _, _ = G.E.src e |> G.V.label in
   let dst, _, _ = G.E.dst e |> G.V.label in
-  [string_of_instruction src; string_of_instruction dst]
+  [string_of_inst src; string_of_inst dst]
   |> String.concat ~sep:" -> "
 
 let full_string_of_v v =
@@ -76,7 +77,7 @@ let create block phase =
   let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
   let f acc op =
     match op with
-    | Instruction i -> begin
+    | Inst i -> begin
         let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }, ref "") in
         G.add_vertex g dst;
         for j = 1 to AeInst.n_in op do
@@ -98,7 +99,7 @@ let create block phase =
         | Tag ->
           if i = Out1 then [dst] else acc
       end
-    | StackInstruction i ->
+    | StackInst i ->
       begin
         match i with
         | Swap ->
@@ -157,7 +158,7 @@ let display_with_feh t =
       let inst, _, _ = G.V.label v in
       match inst with
       | _ -> [
-          `Label (string_of_instruction inst);
+          `Label (string_of_inst inst);
         ]
     let default_edge_attributes _ = []
     let edge_attributes _ = []
@@ -289,7 +290,7 @@ let create_encode_graph t =
   { g = g; phase = Encode; checks = checks }
 
 let derive_encode_graph t =
-  Log.info "Deriving encoding graph";
+  Log.Global.info "Deriving encoding graph";
   assert (t.phase = Decode);
   let mark_path msg out =
     let f e =
@@ -314,7 +315,7 @@ let derive_encode_graph t =
   create_encode_graph t
 
 let check t types rand checks =
-  Log.info "Checking %s %b" (List.to_string string_of_typ types) rand;
+  Log.Global.info "Checking %s %b" (List.to_string string_of_typ types) rand;
   let max_ctr = ref 0 in
   begin
     let f inst typ =
@@ -377,7 +378,7 @@ let check t types rand checks =
         else
           map := { typ = Bot; ctr = !p1map.ctr }
     end;
-    Log.debug "%s" (full_string_of_v v)
+    Log.Global.debug "%s" (full_string_of_v v)
   in
   Topo.iter f t.g;
   (* Check that all nodes needing to be random are indeed marked random *)
@@ -385,31 +386,35 @@ let check t types rand checks =
     let _, map, _ = G.V.label v in
     !map.typ = Rand
   in
-  List.for_all checks ~f
+  match List.for_all checks ~f with
+  | true -> Ok ()
+  | false -> Or_error.error_string "Encode graph insecure"
 
 let is_secure_encode t =
   check t [Bot; Bot; Bot; Bot] true t.checks
 
 let is_secure_decode t =
+  let open Or_error.Monad_infix in
   check t [Zero; Zero; One; Zero] false t.checks
-  && check t [Zero; Zero; Zero; One] false t.checks
-  && check t [Zero; Zero; One; One] false t.checks
-  && check t [Rand; Zero; Zero; Zero] false t.checks
-  && check t [Rand; Zero; Zero; One] false t.checks
-  && check t [Rand; Zero; One; Zero] false t.checks
-  && check t [Rand; Zero; One; One] false t.checks
-  && check t [Rand; One; Zero; Zero] false t.checks
-  && check t [Rand; One; Zero; One] false t.checks
-  && check t [Rand; One; One; Zero] false t.checks
-  && check t [Rand; One; One; One] false t.checks
+  >>= fun _ -> check t [Zero; Zero; Zero; One] false t.checks
+  >>= fun _ -> check t [Zero; Zero; One; One] false t.checks
+  >>= fun _ -> check t [Rand; Zero; Zero; Zero] false t.checks
+  >>= fun _ -> check t [Rand; Zero; Zero; One] false t.checks
+  >>= fun _ -> check t [Rand; Zero; One; Zero] false t.checks
+  >>= fun _ -> check t [Rand; Zero; One; One] false t.checks
+  >>= fun _ -> check t [Rand; One; Zero; Zero] false t.checks
+  >>= fun _ -> check t [Rand; One; Zero; One] false t.checks
+  >>= fun _ -> check t [Rand; One; One; Zero] false t.checks
+  >>= fun _ -> check t [Rand; One; One; One] false t.checks
 
 let is_secure_tag t =
+  let open Or_error.Monad_infix in
   check t [Bot; Bot] true t.checks
-  && check t [Rand; Zero] false t.checks
-  && check t [Rand; One] false t.checks
+  >>= fun _ -> check t [Rand; Zero] false t.checks
+  >>= fun _ -> check t [Rand; One] false t.checks
 
 let is_secure t =
-  Log.info "Checking security of %s graph" @@ string_of_phase t.phase;
+  Log.Global.info "Checking security of %s graph" @@ string_of_phase t.phase;
   match t.phase with
   | Encode -> is_secure_encode t
   | Decode -> is_secure_decode t

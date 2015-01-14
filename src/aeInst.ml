@@ -2,65 +2,68 @@ open Core.Std
 open AeOps
 
 let n_in = function
-  | Instruction Msg1 -> 0
-  | Instruction Msg2 -> 0
-  | Instruction Ini1 -> 0
-  | Instruction Ini2 -> 0
-  | Instruction Fin1 -> 1
-  | Instruction Fin2 -> 1
-  | Instruction Out1 -> 1
-  | Instruction Out2 -> 1
-  | Instruction Dup -> 1
-  | Instruction Xor -> 2
-  | Instruction Tbc -> 1
-  | StackInstruction Swap -> 2
-  | StackInstruction Twoswap -> 3
+  | Inst Msg1 -> 0
+  | Inst Msg2 -> 0
+  | Inst Ini1 -> 0
+  | Inst Ini2 -> 0
+  | Inst Fin1 -> 1
+  | Inst Fin2 -> 1
+  | Inst Out1 -> 1
+  | Inst Out2 -> 1
+  | Inst Dup -> 1
+  | Inst Xor -> 2
+  | Inst Tbc -> 1
+  | StackInst Swap -> 2
+  | StackInst Twoswap -> 3
+  (* | SynthInst Terminal -> 1 *)
 
 let n_out = function
-  | Instruction Msg1 -> 1
-  | Instruction Msg2 -> 1
-  | Instruction Ini1 -> 1
-  | Instruction Ini2 -> 1
-  | Instruction Fin1 -> 0
-  | Instruction Fin2 -> 0
-  | Instruction Out1 -> 0
-  | Instruction Out2 -> 0
-  | Instruction Dup -> 2
-  | Instruction Xor -> 1
-  | Instruction Tbc -> 1
-  | StackInstruction Swap -> 2
-  | StackInstruction Twoswap -> 3
+  | Inst Msg1 -> 1
+  | Inst Msg2 -> 1
+  | Inst Ini1 -> 1
+  | Inst Ini2 -> 1
+  | Inst Fin1 -> 0
+  | Inst Fin2 -> 0
+  | Inst Out1 -> 0
+  | Inst Out2 -> 0
+  | Inst Dup -> 2
+  | Inst Xor -> 1
+  | Inst Tbc -> 1
+  | StackInst Swap -> 2
+  | StackInst Twoswap -> 3
+  (* | SynthInst Terminal -> 0 *)
 
 let n_diff = function
-  | Instruction Msg1 -> 1
-  | Instruction Msg2 -> 1
-  | Instruction Ini1 -> 1
-  | Instruction Ini2 -> 1
-  | Instruction Fin1 -> -1
-  | Instruction Fin2 -> -1
-  | Instruction Out1 -> -1
-  | Instruction Out2 -> -1
-  | Instruction Dup -> 1
-  | Instruction Xor -> -1
-  | Instruction Tbc -> 0
-  | StackInstruction Swap -> 0
-  | StackInstruction Twoswap -> 0
+  | Inst Msg1 -> 1
+  | Inst Msg2 -> 1
+  | Inst Ini1 -> 1
+  | Inst Ini2 -> 1
+  | Inst Fin1 -> -1
+  | Inst Fin2 -> -1
+  | Inst Out1 -> -1
+  | Inst Out2 -> -1
+  | Inst Dup -> 1
+  | Inst Xor -> -1
+  | Inst Tbc -> 0
+  | StackInst Swap -> 0
+  | StackInst Twoswap -> 0
+  (* | SynthInst Terminal -> -1 *)
 
 let from_string s =
   match String.uppercase s with
-  | "MSG1" -> Ok (Instruction Msg1)
-  | "MSG2" -> Ok (Instruction Msg2)
-  | "INI1" -> Ok (Instruction Ini1)
-  | "INI2" -> Ok (Instruction Ini2)
-  | "FIN1" -> Ok (Instruction Fin1)
-  | "FIN2" -> Ok (Instruction Fin2)
-  | "OUT1" -> Ok (Instruction Out1)
-  | "OUT2" -> Ok (Instruction Out2)
-  | "DUP" -> Ok (Instruction Dup)
-  | "XOR" -> Ok (Instruction Xor)
-  | "TBC" -> Ok (Instruction Tbc)
-  | "SWAP" -> Ok (StackInstruction Swap)
-  | "2SWAP" -> Ok (StackInstruction Twoswap)
+  | "MSG1" -> Ok (Inst Msg1)
+  | "MSG2" -> Ok (Inst Msg2)
+  | "INI1" -> Ok (Inst Ini1)
+  | "INI2" -> Ok (Inst Ini2)
+  | "FIN1" -> Ok (Inst Fin1)
+  | "FIN2" -> Ok (Inst Fin2)
+  | "OUT1" -> Ok (Inst Out1)
+  | "OUT2" -> Ok (Inst Out2)
+  | "DUP" -> Ok (Inst Dup)
+  | "XOR" -> Ok (Inst Xor)
+  | "TBC" -> Ok (Inst Tbc)
+  | "SWAP" -> Ok (StackInst Swap)
+  | "2SWAP" -> Ok (StackInst Twoswap)
   | "" -> Or_error.error_string "no instruction given"
   | _ as s -> Or_error.error_string (sprintf "unknown instruction '%s'" s)
 
@@ -70,8 +73,8 @@ let from_string_block s =
 let block_length l =
   (* we do not count stack instructions as part of the block length *)
   let f acc = function
-    | Instruction _ -> acc + 1
-    | StackInstruction _ -> acc
+    | Inst _ -> acc + 1
+    | StackInst _ -> acc
   in
   List.fold_left l ~init:0 ~f:f
 
@@ -92,12 +95,12 @@ let print_modes found maxsize =
   done
 
 let validate block phase =
-  let eq x y = (Instruction x) = y in
+  let eq x y = (Inst x) = y in
   let check b s = if b then Ok () else Or_error.error_string s in
   let one inst =
     let c = List.count block (eq inst) in
     check (c = 1) (sprintf "Need exactly one %s instruction (%d found)"
-                     (string_of_instruction inst) c)
+                     (string_of_inst inst) c)
   in
   let open Or_error.Monad_infix in
   begin
@@ -125,7 +128,7 @@ let validate block phase =
   end
 
 let is_valid block =
-  let eq x y = (Instruction x) = y in
+  let eq x y = (Inst x) = y in
   List.count block (eq Ini1) = 1
   && List.count block (eq Ini2) = 1
   && List.count block (eq Fin1) = 1
@@ -135,29 +138,3 @@ let is_valid block =
   && List.count block (eq Out1) = 1
   && List.count block (eq Out2) = 1
   && List.exists block (eq Tbc)
-
-let is_pruneable op block =
-  let cmp_prev cur prev =
-    let p cur = prev = Instruction cur in
-    let ps cur = prev = StackInstruction cur in
-    match cur with
-    | Instruction cur ->
-      begin
-        match cur with
-        | Out1 | Out2 -> p Msg1 || p Msg2
-        | Fin1 -> p Ini2
-        | Fin2 -> p Ini1 
-        | Tbc -> p Tbc
-        | Xor -> p Dup
-        | _ -> false
-      end
-    | StackInstruction cur ->
-      begin
-        match cur with
-        | Swap -> p Dup || ps Swap
-        | Twoswap -> ps Twoswap
-      end
-  in
-  match block with
-  | hd :: _ -> cmp_prev op hd
-  | [] -> false

@@ -5,7 +5,7 @@ type phase =
   | Decode
   | Tag
 
-type instruction =
+type inst =
   | Msg1
   | Msg2
   | Ini1
@@ -18,13 +18,13 @@ type instruction =
   | Xor
   | Tbc
 
-type stackInstruction =
+type stackInst =
   | Swap
   | Twoswap
 
 type op =
-  | Instruction of instruction
-  | StackInstruction of stackInstruction
+  | Inst of inst
+  | StackInst of stackInst
 
 let all_ops = [
   "MSG1"; "MSG2";
@@ -40,7 +40,7 @@ let string_of_phase = function
   | Decode -> "Decode"
   | Tag -> "Tag"
 
-let string_of_instruction = function
+let string_of_inst = function
   | Msg1 -> "MSG1"
   | Msg2 -> "MSG2"
   | Ini1 -> "INI1"
@@ -53,13 +53,13 @@ let string_of_instruction = function
   | Xor -> "XOR"
   | Tbc -> "TBC"
 
-let string_of_stack_instruction = function
+let string_of_stack_inst = function
   | Swap -> "SWAP"
   | Twoswap -> "2SWAP"
 
 let string_of_op = function
-  | Instruction i -> string_of_instruction i
-  | StackInstruction i -> string_of_stack_instruction i
+  | Inst i -> string_of_inst i
+  | StackInst i -> string_of_stack_inst i
 
 let string_of_op_list l =
-  List.to_string (fun x -> string_of_op x) l
+  List.to_string string_of_op l
