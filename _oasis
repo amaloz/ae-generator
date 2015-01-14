@@ -13,14 +13,15 @@ Description:
 AlphaFeatures: ocamlbuild_more_args
 XOCamlbuildExtraArgs: -cflag -safe-string
 
-BuildDepends: dolog,
-              cryptokit,
-              ocamlgraph,
+BuildDepends: async,
+              async_parallel,
               core,
+              cryptokit,
+              dolog,
+              ocamlgraph,
               threads
 
-Executable aegenerator
-  Path:           .
-  BuildTools:     ocamlbuild
-  MainIs:         src/main.ml
-  CompiledObject: native
+Executable test
+  Path:    .
+  MainIs:  src/main.ml
+  CompiledObject: best

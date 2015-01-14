@@ -17,10 +17,7 @@ let xor_types a b =
   match a, b with
   | Zero, Zero | One, One -> Zero
   | Zero, One | One, Zero -> One
-  | _ , _ as types ->
-    let a, b = types in
-    failwith (sprintf "cannot xor types %s and %s"
-                (string_of_typ a) (string_of_typ b))
+  | _ , _ -> assert false
 
 type map = { typ : typ; ctr : int }
 
@@ -43,9 +40,6 @@ module Weight = struct
   let zero = Int.zero
 end
 module Dijkstra = Graph.Path.Dijkstra(G)(Weight)
-
-module VEval = struct type t = string ref end
-module GEval = Graph.Imperative.Digraph.Abstract(VEval)
 
 let string_of_v v =
   let inst, _, _ = G.V.label v in
@@ -316,8 +310,8 @@ let derive_encode_graph t =
     [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
       mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
     ]
-  >>= fun () -> 
-  create_encode_graph t |> Or_error.return
+  >>| fun () -> 
+  create_encode_graph t
 
 let check t types rand checks =
   Log.info "Checking %s %b" (List.to_string string_of_typ types) rand;

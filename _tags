@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 89f14cddb6b68fee5a1ad12897e7fc3d)
+# DO NOT EDIT (digest: b1b06664f95db6a246ecb960bbfdf8c2)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,17 +14,23 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
-# Executable aegenerator
-"src/main.native": package(core)
-"src/main.native": package(cryptokit)
-"src/main.native": package(dolog)
-"src/main.native": package(ocamlgraph)
-"src/main.native": package(threads)
+# Executable test
+<src/main.{native,byte}>: package(async)
+<src/main.{native,byte}>: package(async_parallel)
+<src/main.{native,byte}>: package(core)
+<src/main.{native,byte}>: package(cryptokit)
+<src/main.{native,byte}>: package(dolog)
+<src/main.{native,byte}>: package(ocamlgraph)
+<src/main.{native,byte}>: package(threads)
+<*.ml{,i,y}>: package(async)
+<*.ml{,i,y}>: package(async_parallel)
 <*.ml{,i,y}>: package(core)
 <*.ml{,i,y}>: package(cryptokit)
 <*.ml{,i,y}>: package(dolog)
 <*.ml{,i,y}>: package(ocamlgraph)
 <*.ml{,i,y}>: package(threads)
+<src/*.ml{,i,y}>: package(async)
+<src/*.ml{,i,y}>: package(async_parallel)
 <src/*.ml{,i,y}>: package(core)
 <src/*.ml{,i,y}>: package(cryptokit)
 <src/*.ml{,i,y}>: package(dolog)
