@@ -37,7 +37,7 @@ let spec_check =
   +> flag "-file" (optional file)
     ~doc:"FILE Run against modes in FILE"
   +> flag "-simple" no_arg
-    ~doc:" Use simplified modes"
+    ~doc:" Use simplified modes (no INI2 and FIN2 nodes)"
   +> flag "-save" no_arg
     ~doc:" Save displayed mode to a file"
   +> flag "-debug" (optional_with_default 0 debug)

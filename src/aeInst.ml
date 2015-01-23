@@ -107,7 +107,7 @@ let validate block phase ~simple =
       if simple then [Ini1; Fin1; Msg1; Msg2; Out1; Out2]
       else [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2]
     in
-    Or_error.combine_errors_unit (List.map l one) >>= fun _ ->
+    Or_error.combine_errors_unit (List.map l one) >>= fun () ->
     let f acc i = acc - n_in i + n_out i in
     if List.fold block ~init:0 ~f = 0 then
       Ok ()
@@ -116,8 +116,18 @@ let validate block phase ~simple =
                                (string_of_phase phase))
   | Tag ->
     let l = if simple then [Ini1; Out1] else [Ini1; Ini2; Out1] in
-    Or_error.combine_errors_unit (List.map l one) >>= fun _ ->
-    Ok ()                     (* TODO: verify Tag algorithm somehow *)
+    Or_error.combine_errors_unit (List.map l one) >>= fun () ->
+    let none =
+      if simple then
+        [Ini2; Out2; Fin1; Fin2]
+      else
+        [Out2; Fin1; Fin2]
+    in
+    let f op = List.exists none ~f:(fun inst -> op = Inst inst) in
+    if List.exists block ~f then
+      Or_error.error_string "Invalid instruction in Tag"
+    else
+      Ok ()
 
 let is_valid block ~simple =
   let eq x y = (Inst x) = y in

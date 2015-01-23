@@ -46,7 +46,7 @@ let otr = {
 
 let otr2_s = {
   decode_s =
-    "MSG2 DUP TBC MSG1 XOR DUP DUP OUT1 INI1 XOR FIN1 TBC XOR OUT2";
+    "MSG2 DUP TBC MSG1 XOR DUP OUT1 TBC XOR DUP OUT2 INI1 XOR FIN1";
   tag_s =
     "INI1 TBC OUT1"
 }
