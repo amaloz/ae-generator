@@ -1,6 +1,4 @@
-open Core.Std
-open Async.Std
-open AeOps
+open AeInclude
 
 type typ =
   | Zero
@@ -14,12 +12,6 @@ let string_of_typ = function
   | Bot -> "⊥"
   | Rand -> "$"
 
-let xor_types a b =
-  match a, b with
-  | Zero, Zero | One, One -> Zero
-  | Zero, One | One, Zero -> One
-  | _ , _ -> assert false
-
 type map = { typ : typ; ctr : int }
 
 module V = struct
@@ -32,15 +24,15 @@ module V = struct
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
-module Weight = struct
-  type label = G.E.label
-  type t = int
-  let weight _ = Int.one
-  let compare = Int.compare
-  let add = Int.(+)
-  let zero = Int.zero
-end
-module Dijkstra = Graph.Path.Dijkstra(G)(Weight)
+module Oper = Graph.Oper.I(G)
+module Dijkstra = Graph.Path.Dijkstra(G)(struct
+    type label = G.E.label
+    type t = int
+    let weight _ = Int.one
+    let compare = Int.compare
+    let add = Int.(+)
+    let zero = Int.zero
+  end)
 
 let string_of_v v =
   let inst, _, _ = G.V.label v in
@@ -69,67 +61,64 @@ let find_vertex_by_inst g inst =
 
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
-exception Stack_error of string
-
 let create block phase =
+  let open Or_error.Monad_infix in
   let s = Stack.create () in
   let g = G.create () in
   let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
+  let rec pop ~dst ~op = function
+    | 0 -> Ok ()
+    | n -> match Stack.pop s with
+      | Some src ->
+        G.E.create src () dst |> G.add_edge_e g; pop (n - 1) ~dst ~op
+      | None -> Or_error.error_string (errmsg op)
+  in
+  let rec push ~dst = function
+    | 0 -> Ok ()
+    | n -> Stack.push s dst; push ~dst (n - 1)
+  in
   let f acc op =
     match op with
-    | Inst i -> begin
-        let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }, ref "") in
-        G.add_vertex g dst;
-        for j = 1 to AeInst.n_in op do
-          match Stack.pop s with
-          | Some src ->
-            let e = G.E.create src () dst in
-            G.add_edge_e g e;
-          | None -> raise (Stack_error (errmsg op))
-        done;
-        for j = 1 to AeInst.n_out op do
-          Stack.push s dst
-        done;
-        (* Construct list of nodes to check *)
-        match phase with
-        | Encode ->
-          if i = Out1 || i = Out2 then dst :: acc else acc
-        | Decode ->
-          if i = Fin1 then [dst] else acc
-        | Tag ->
-          if i = Out1 then [dst] else acc
-      end
+    | Inst i ->
+      let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }, ref "") in
+      G.add_vertex g dst;
+      pop (AeInst.n_in op) ~dst ~op >>= fun _ ->
+      push (AeInst.n_out op) ~dst   >>= fun _ ->
+      acc                           >>| fun acc ->
+      if phase = Encode && (i = Out1 || i = Out2) then
+        dst :: acc
+      else if phase = Decode && i = Fin1 then
+        [dst]
+      else if phase = Tag && i = Out1 then
+        [dst]
+      else
+        acc
     | StackInst i ->
-      begin
-        match i with
+      let open Option.Monad_infix in
+      let result = match i with
         | Swap ->
-          if Stack.length s < 2 then
-            raise (Stack_error (errmsg op))
-          else
-            let first = Stack.pop_exn s in
-            let second = Stack.pop_exn s in
-            Stack.push s first;
-            Stack.push s second
+          Stack.pop s >>= fun first ->
+          Stack.pop s >>| fun second ->
+          Stack.push s first;
+          Stack.push s second
         | Twoswap ->
-          if Stack.length s < 3 then
-            raise (Stack_error (errmsg op))
-          else
-            let first = Stack.pop_exn s in
-            let second = Stack.pop_exn s in
-            let third = Stack.pop_exn s in
-            Stack.push s first;
-            Stack.push s second;
-            Stack.push s third
-      end;
-      acc
+          Stack.pop s >>= fun first ->
+          Stack.pop s >>= fun second ->
+          Stack.pop s >>| fun third ->
+          Stack.push s first;
+          Stack.push s second;
+          Stack.push s third
+      in
+      if Option.is_some result then acc
+      else Or_error.error_string (errmsg op)
   in
-  try
-    let checks = List.fold block ~init:[] ~f in
-    Ok { g = g; phase = phase; checks = checks }
-  with Stack_error msg -> Or_error.error_string msg
+  List.fold block ~init:(Ok []) ~f >>| fun checks ->
+  { g = g; phase = phase; checks = checks }
 
-let display_with_feh t =
-  let module Display = struct
+module type Phase = sig val phase : phase end
+
+let display ?(save=false) t t' t'' =
+  let module Display (M : Phase) = struct
     include G
     let ctr = ref 1
     let vertex_name v =
@@ -145,7 +134,7 @@ let display_with_feh t =
       Int.to_string c
     let graph_attributes _ = [
       `Center true;
-      `Label (string_of_phase t.phase);
+      `Label (string_of_phase M.phase);
       `Fontsize 14;
     ]
     let default_vertex_attributes _ = [
@@ -164,14 +153,43 @@ let display_with_feh t =
     let edge_attributes _ = []
     let get_subgraph _ = None
   end in
-  let module Dot = Graph.Graphviz.Dot(Display) in
-  let tmp = Filename.temp_file "mode" ".dot" in
-  let oc = Out_channel.create tmp in
-  G.Mark.clear t.g;
-  Dot.output_graph oc t.g;
-  Out_channel.close oc;
-  ignore (Sys.command ("dot -Tpng " ^ tmp ^ " | feh -"));
-  Sys.remove tmp
+  let create t file =
+    G.Mark.clear t.g;
+    let module Dot = Graph.Graphviz.Dot(Display(struct let phase = t.phase end)) in
+    (* XXX: This is ugly.  We want to output the dot file for the graph, but
+       change the name of the graph from "G" to "clusterG" so that when we use
+       gvpack to combine the graphs, each graph is in a box.  We do this by
+       first writing the graph to a (temporary) file, and the creating a new
+       file which is exactly the same as the old file except that the first line
+       is changed.  This is ugly, and there is probably a cleaner way to do
+       it. *)
+    let file' = file ^ "-tmp" in
+    Out_channel.with_file file' ~f:(fun oc -> Dot.output_graph oc t.g);
+    Out_channel.with_file file ~f:(fun oc ->
+        In_channel.with_file file' ~f:(fun ic ->
+            let _ = Option.value_exn (In_channel.input_line ic) in
+            (* Change first line from "digraph G {" to "digraph clusterG {" *)
+            fprintf oc "digraph clusterG {\n";
+            In_channel.iter_lines ic ~f:(fun s -> fprintf oc "%s\n%!" s)
+          );
+        Sys.remove file'
+      )
+  in
+  let tmpfile phase = Filename.temp_file (string_of_phase phase) ".dot" in
+  let phases = [t.phase; t'.phase; t''.phase] in
+  let tmps = List.map phases ~f:tmpfile in
+  List.iter2_exn [t; t'; t''] tmps ~f:create;
+  let command =
+    if save then
+      let file = "mode.png" in
+      "gvpack -array_i -u " ^ (String.concat ~sep:" " tmps) ^
+      " 2>/dev/null | dot -Tpng > " ^ file
+    else
+      "gvpack -array_i -u " ^ (String.concat ~sep:" " tmps) ^
+      " 2>/dev/null | dot -Tpng | feh -"
+  in
+  ignore (Sys.command command);
+  List.iter tmps ~f:Sys.remove
 
 let cipher = new Cryptokit.Block.aes_encrypt "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
 
@@ -290,7 +308,7 @@ let create_encode_graph t =
   { g = g; phase = Encode; checks = checks }
 
 let derive_encode_graph t =
-  Log.Global.info "Deriving encoding graph";
+  Lgr.info "Deriving encoding graph";
   assert (t.phase = Decode);
   let mark_path msg out =
     let f e =
@@ -301,7 +319,8 @@ let derive_encode_graph t =
       let path, _ = Dijkstra.shortest_path t.g msg out in
       List.iter path f;
       Ok ()
-    with _ -> Or_error.error_string
+    with _ ->
+      Or_error.error_string
                 (sprintf "No path from %s to %s" (string_of_v msg)
                    (string_of_v out))
   in
@@ -314,8 +333,8 @@ let derive_encode_graph t =
   >>| fun () -> 
   create_encode_graph t
 
-let check t types rand checks =
-  Log.Global.info "Checking %s %b" (List.to_string string_of_typ types) rand;
+let check t types rand checks ~simple =
+  Lgr.info "Checking %s %b" (List.to_string string_of_typ types) rand;
   let max_ctr = ref 0 in
   begin
     let f inst typ =
@@ -325,11 +344,14 @@ let check t types rand checks =
         | _ -> 0 in
       map := { typ = typ; ctr = f typ }
     in
-    match t.phase with
-    | Encode | Decode ->
-      List.iter2_exn [Ini1; Ini2; Msg1; Msg2] types f
-    | Tag ->
-      List.iter2_exn [Ini1; Ini2] types f
+    let l =
+      match t.phase with
+      | Encode | Decode ->
+        if simple then [Ini1; Msg1; Msg2] else [Ini1; Ini2; Msg1; Msg2]
+      | Tag ->
+        if simple then [Ini1] else [Ini1; Ini2]
+    in
+    List.iter2_exn l types f
   end;
   let f v =
     let inst, _, _ = G.V.label v in
@@ -337,13 +359,11 @@ let check t types rand checks =
       match inst with
       | Msg1 | Msg2 | Ini1 | Ini2 -> ()
       | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-        let p = G.pred t.g v |> List.hd_exn in
-        let _, pmap,_  = G.V.label p in
+        let _, pmap, _ = G.pred t.g v |> List.hd_exn |> G.V.label in
         let _, map, _ = G.V.label v in
         map := !pmap
       | Tbc ->
-        let p = G.pred t.g v |> List.hd_exn in
-        let _, pmap, _ = G.V.label p in
+        let _, pmap, _ = G.pred t.g v |> List.hd_exn |> G.V.label in
         let _, map, _ = G.V.label v in
         if !pmap.typ = One || !pmap.typ = Rand || rand then
           begin
@@ -369,16 +389,21 @@ let check t types rand checks =
             p1map, p2map
         in
         let _, map, _ = G.V.label v in
+        let xor_types = function
+          | Zero, Zero | One, One -> Zero
+          | Zero, One | One, Zero -> One
+          | _ , _ -> assert false
+        in
         if (!p1map.typ = Zero && !p2map.typ = Zero)
         || (!p1map.typ = Zero && !p2map.typ = One)
         || (!p1map.typ = One && !p2map.typ = Zero) then
-          map := { typ = xor_types !p1map.typ !p2map.typ; ctr = !p1map.ctr }
+          map := { typ = xor_types (!p1map.typ, !p2map.typ); ctr = !p1map.ctr }
         else if !p1map.typ = Rand && !p1map.ctr > !p2map.ctr then
           map := { typ = Rand; ctr = !p1map.ctr }
         else
           map := { typ = Bot; ctr = !p1map.ctr }
     end;
-    Log.Global.debug "%s" (full_string_of_v v)
+    Lgr.debug "%s" (full_string_of_v v)
   in
   Topo.iter f t.g;
   (* Check that all nodes needing to be random are indeed marked random *)
@@ -388,34 +413,57 @@ let check t types rand checks =
   in
   match List.for_all checks ~f with
   | true -> Ok ()
-  | false -> Or_error.error_string "Encode graph insecure"
+  | false -> Or_error.error_string
+               (sprintf "Graph insecure on inputs %s"
+                  (List.to_string types ~f:string_of_typ))
 
 let is_secure_encode t =
-  check t [Bot; Bot; Bot; Bot] true t.checks
+  check t ~simple:false [Bot; Bot; Bot; Bot] true t.checks
+let is_secure_encode_simple t =
+  check t ~simple:true [Bot; Bot; Bot] true t.checks
 
 let is_secure_decode t =
   let open Or_error.Monad_infix in
-  check t [Zero; Zero; One; Zero] false t.checks
-  >>= fun _ -> check t [Zero; Zero; Zero; One] false t.checks
-  >>= fun _ -> check t [Zero; Zero; One; One] false t.checks
-  >>= fun _ -> check t [Rand; Zero; Zero; Zero] false t.checks
-  >>= fun _ -> check t [Rand; Zero; Zero; One] false t.checks
-  >>= fun _ -> check t [Rand; Zero; One; Zero] false t.checks
-  >>= fun _ -> check t [Rand; Zero; One; One] false t.checks
-  >>= fun _ -> check t [Rand; One; Zero; Zero] false t.checks
-  >>= fun _ -> check t [Rand; One; Zero; One] false t.checks
-  >>= fun _ -> check t [Rand; One; One; Zero] false t.checks
-  >>= fun _ -> check t [Rand; One; One; One] false t.checks
+  check t ~simple:false [Zero; Zero; One; Zero] false t.checks  >>= fun _ ->
+  check t ~simple:false [Zero; Zero; Zero; One] false t.checks  >>= fun _ ->
+  check t ~simple:false [Zero; Zero; One; One] false t.checks   >>= fun _ ->
+  check t ~simple:false [Rand; Zero; Zero; Zero] false t.checks >>= fun _ ->
+  check t ~simple:false [Rand; Zero; Zero; One] false t.checks  >>= fun _ ->
+  check t ~simple:false [Rand; Zero; One; Zero] false t.checks  >>= fun _ ->
+  check t ~simple:false [Rand; Zero; One; One] false t.checks   >>= fun _ ->
+  check t ~simple:false [Rand; One; Zero; Zero] false t.checks  >>= fun _ ->
+  check t ~simple:false [Rand; One; Zero; One] false t.checks   >>= fun _ ->
+  check t ~simple:false [Rand; One; One; Zero] false t.checks   >>= fun _ ->
+  check t ~simple:false [Rand; One; One; One] false t.checks
+let is_secure_decode_simple t =
+  let open Or_error.Monad_infix in
+  check t ~simple:true [Zero; One; Zero] false t.checks  >>= fun _ ->
+  check t ~simple:true [Zero; Zero; One] false t.checks  >>= fun _ ->
+  check t ~simple:true [Zero; One; One] false t.checks   >>= fun _ ->
+  check t ~simple:true [Rand; Zero; Zero] false t.checks >>= fun _ ->
+  check t ~simple:true [Rand; Zero; One] false t.checks  >>= fun _ ->
+  check t ~simple:true [Rand; One; Zero] false t.checks  >>= fun _ ->
+  check t ~simple:true [Rand; One; One] false t.checks
 
 let is_secure_tag t =
   let open Or_error.Monad_infix in
-  check t [Bot; Bot] true t.checks
-  >>= fun _ -> check t [Rand; Zero] false t.checks
-  >>= fun _ -> check t [Rand; One] false t.checks
+  check t ~simple:false [Bot; Bot] true t.checks    >>= fun _ ->
+  check t ~simple:false [Rand; Zero] false t.checks >>= fun _ ->
+  check t ~simple:false [Rand; One] false t.checks
+let is_secure_tag_simple t =
+  let open Or_error.Monad_infix in
+  check t ~simple:true [Bot] true t.checks   >>= fun _ ->
+  check t ~simple:true [Rand] false t.checks
 
-let is_secure t =
-  Log.Global.info "Checking security of %s graph" @@ string_of_phase t.phase;
-  match t.phase with
-  | Encode -> is_secure_encode t
-  | Decode -> is_secure_decode t
-  | Tag -> is_secure_tag t
+let is_secure t ~simple =
+  Lgr.info "Checking security of %s graph" @@ string_of_phase t.phase;
+  if simple then
+    match t.phase with
+    | Encode -> is_secure_encode_simple t
+    | Decode -> is_secure_decode_simple t
+    | Tag -> is_secure_tag_simple t
+  else
+    match t.phase with
+    | Encode -> is_secure_encode t
+    | Decode -> is_secure_decode t
+    | Tag -> is_secure_tag t

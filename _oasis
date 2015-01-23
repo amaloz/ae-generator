@@ -15,10 +15,13 @@ XOCamlbuildExtraArgs: -cflag -safe-string
 
 BuildDepends: async,
               async_parallel,
+              bin_prot,
+              bin_prot.syntax,
               core,
               cryptokit,
               dolog,
               ocamlgraph,
+              rpc_parallel,
               threads
 
 Executable test

@@ -16,6 +16,13 @@ let copa = {
     "INI1 TBC INI2 XOR TBC OUT1"
 }
 
+let copa2_s = {
+  decode_s =
+    "MSG1 TBC INI1 XOR DUP TBC OUT1 MSG2 TBC XOR DUP TBC OUT2 FIN1";
+  tag_s =
+    "INI1 TBC OUT1"
+}
+
 let ocb = {
   decode_s =
     "INI1 INI2 FIN2 MSG1 TBC DUP OUT1 XOR MSG2 TBC DUP OUT2 XOR FIN1";
@@ -23,11 +30,32 @@ let ocb = {
     "INI1 TBC OUT1 INI2"
 }
 
+let ocb_s = {
+  decode_s =
+    "INI1 MSG1 TBC DUP OUT1 XOR MSG2 TBC DUP OUT2 XOR FIN1";
+  tag_s =
+    "INI1 TBC OUT1"
+}
+
 let otr = {
   decode_s =
     "MSG2 DUP TBC MSG1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1 INI2 FIN2";
   tag_s =
     "INI1 TBC OUT1 INI2"
+}
+
+let otr2_s = {
+  decode_s =
+    "MSG2 DUP TBC MSG1 XOR DUP DUP OUT1 INI1 XOR FIN1 TBC XOR OUT2";
+  tag_s =
+    "INI1 TBC OUT1"
+}
+
+let otr_s = {
+  decode_s =
+    "MSG2 DUP TBC MSG1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1";
+  tag_s =
+    "INI1 TBC OUT1"
 }
 
 let xcbc = {
@@ -41,9 +69,13 @@ let modes =
   String.Map.of_alist_exn [
     "CCM", ccm;
     "COPA", copa;
+    "COPA2-S", copa2_s;
     "OCB", ocb;
     "OTR", otr;
-    "XCBC", xcbc
+    "OTR2-S", otr2_s;
+    "XCBC", xcbc;
+    "OCB-S", ocb_s;
+    "OTR-S", otr_s;
   ]
 
 let modes_string = String.Map.keys modes |> String.concat ~sep:", "

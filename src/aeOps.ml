@@ -17,14 +17,17 @@ type inst =
   | Dup
   | Xor
   | Tbc
+with bin_io
 
 type stackInst =
   | Swap
   | Twoswap
+with bin_io
 
 type op =
   | Inst of inst
   | StackInst of stackInst
+with bin_io
 
 let all_ops = [
   "MSG1"; "MSG2";

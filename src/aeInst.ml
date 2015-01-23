@@ -1,5 +1,5 @@
-open Core.Std
 open AeOps
+open Core.Std
 
 let n_in = function
   | Inst Msg1 -> 0
@@ -15,7 +15,6 @@ let n_in = function
   | Inst Tbc -> 1
   | StackInst Swap -> 2
   | StackInst Twoswap -> 3
-  (* | SynthInst Terminal -> 1 *)
 
 let n_out = function
   | Inst Msg1 -> 1
@@ -31,7 +30,6 @@ let n_out = function
   | Inst Tbc -> 1
   | StackInst Swap -> 2
   | StackInst Twoswap -> 3
-  (* | SynthInst Terminal -> 0 *)
 
 let n_diff = function
   | Inst Msg1 -> 1
@@ -47,7 +45,6 @@ let n_diff = function
   | Inst Tbc -> 0
   | StackInst Swap -> 0
   | StackInst Twoswap -> 0
-  (* | SynthInst Terminal -> -1 *)
 
 let from_string s =
   match String.uppercase s with
@@ -94,45 +91,40 @@ let print_modes found maxsize =
       end
   done
 
-let validate block phase =
+let validate block phase ~simple =
   let eq x y = (Inst x) = y in
-  let check b s = if b then Ok () else Or_error.error_string s in
   let one inst =
     let c = List.count block (eq inst) in
-    check (c = 1) (sprintf "Need exactly one %s instruction (%d found)"
-                     (string_of_inst inst) c)
+    if c = 1 then Ok ()
+    else Or_error.error_string
+        (sprintf "%s: Need exactly one %s instruction (%d found)"
+           (string_of_phase phase) (string_of_inst inst) c)
   in
   let open Or_error.Monad_infix in
-  begin
-    match phase with
-    | Encode | Decode ->
-      let l = [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2] in
-      let l = List.map l one in
-      Or_error.combine_errors_unit l
-    | Tag ->
-      let l = [Ini1; Ini2; Out1] in
-      let l = List.map l one in
-      Or_error.combine_errors_unit l
-  end
-  >>= fun () ->
-  begin
-    match phase with
-    | Encode | Decode ->
-      let f acc i = acc - n_in i + n_out i in
-      if List.fold block ~init:0 ~f:f = 0 then
-        Ok ()
-      else
-        Or_error.error_string (sprintf "Leftover items on stack in %s algorithm"
-                                 (string_of_phase phase))
-    | Tag -> Ok ()              (* TODO: verify Tag algorithm somehow *)
-  end
+  match phase with
+  | Encode | Decode ->
+    let l =
+      if simple then [Ini1; Fin1; Msg1; Msg2; Out1; Out2]
+      else [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2]
+    in
+    Or_error.combine_errors_unit (List.map l one) >>= fun _ ->
+    let f acc i = acc - n_in i + n_out i in
+    if List.fold block ~init:0 ~f = 0 then
+      Ok ()
+    else
+      Or_error.error_string (sprintf "%s: Leftover items on stack"
+                               (string_of_phase phase))
+  | Tag ->
+    let l = if simple then [Ini1; Out1] else [Ini1; Ini2; Out1] in
+    Or_error.combine_errors_unit (List.map l one) >>= fun _ ->
+    Ok ()                     (* TODO: verify Tag algorithm somehow *)
 
-let is_valid block =
+let is_valid block ~simple =
   let eq x y = (Inst x) = y in
   List.count block (eq Ini1) = 1
-  && List.count block (eq Ini2) = 1
+  && List.count block (eq Ini2) = (if simple then 0 else 1)
   && List.count block (eq Fin1) = 1
-  && List.count block (eq Fin2) = 1
+  && List.count block (eq Fin2) = (if simple then 0 else 1)
   && List.count block (eq Msg1) = 1
   && List.count block (eq Msg2) = 1
   && List.count block (eq Out1) = 1
