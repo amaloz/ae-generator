@@ -276,7 +276,11 @@ let gen ?(print=false) ?(simple=false) size phase =
         ~counts [] op in
     List.append blocks acc
   in
-  let found = List.fold initial ~init:[] ~f |> remove_dups ~simple in
+  let found = List.fold initial ~init:[] ~f in
+  printf "# Tried:  %d\n%!" !try_count;
+  printf "# Secure: %d\n%!" (List.length found);
+  let found = remove_dups ~simple found in
+  printf "# Unique: %d\n%!" (List.length found);
   (* Deferred.List.iter (\* ~how:`Parallel *\) initial ~f:(fun op -> *)
   (*     (\* Worker.spawn_exn () ~on_failure:Error.raise *\) *)
   (*     (\* >>= fun worker -> *\) *)
@@ -291,8 +295,6 @@ let gen ?(print=false) ?(simple=false) size phase =
   (*     (\* found := List.append blocks !found *\) *)
   (*   ) >>= fun () -> *)
   (* return (remove_dups !found) >>| fun found -> *)
-  printf "Tried: %d\n%!" !try_count;
   if print then
     List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block));
-  printf "# found modes: %d\n%!" (List.length found);
   shutdown ()

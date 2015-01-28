@@ -280,7 +280,7 @@ let create_encode_graph t =
     ctr + 1, acc
   in
   let _, checks = G.fold_vertex add_vertices t.g (1, []) in
-  let rec add_edges v =
+  let add_edges v =
     let add_edge g src dst =
       let src = find_vertex g (G.Mark.get src) in
       let dst = find_vertex g (G.Mark.get dst) in
@@ -297,19 +297,34 @@ let create_encode_graph t =
   in
   G.iter_vertex add_edges t.g;
   G.Mark.clear g;
+  G.Mark.clear t.g;
   { g = g; phase = Encode; checks = checks }
 
 let derive_encode_graph t =
-  Lgr.debug "Deriving Encode graph";
+  Lgr.info "Deriving Encode graph";
   assert (t.phase = Decode);
   let open Or_error.Monad_infix in
   let mark_path msg out =
-    let f e = mark_vertices (G.E.src e) (G.E.dst e) (-1) in
+    let f err e =
+      match err with
+      | Error _ -> err
+      | Ok _ ->
+        let src, dst = G.E.src e, G.E.dst e in
+        Lgr.debug "%s -> %s" (string_of_v src) (string_of_v dst);
+        if G.Mark.get dst = -1 then
+          Or_error.errorf "Shared edge found between %s and %s"
+            (string_of_v msg) (string_of_v out)
+        else begin
+          mark_vertices (G.E.src e) (G.E.dst e) (-1);
+          Ok ()
+        end
+    in
     begin
       try let path, _ = Dijkstra.shortest_path t.g msg out in Ok path with _ ->
         Or_error.errorf "No path from %s to %s" (string_of_v msg)
           (string_of_v out)
-    end >>| fun path -> List.iter path f
+    end >>= fun path ->
+    List.fold path ~init:(Ok ()) ~f
   in
   G.Mark.clear t.g;
   Or_error.combine_errors_unit
