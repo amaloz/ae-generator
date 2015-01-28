@@ -1,7 +1,5 @@
 open AeInclude
 
-let minsize = 13
-
 type synthInst =
   | Start
   | Terminal
@@ -79,11 +77,12 @@ let is_pruneable op block =
   | hd :: _ -> cmp_prev op hd
   | [] -> false
 
-let remove_dups blocks =
+let remove_dups blocks ~simple =
   let table = String.Table.create () ~size:1024 in
   let f block =
-    let r = AeGraph.create block Decode |> ok_exn |> AeGraph.eval in
-    Lgr.info "Result = %s\n" r;
+    let r = AeGraph.create block Decode |> ok_exn |> AeGraph.eval ~simple in
+    Lgr.info "Decode: %s" (string_of_op_list block);
+    Lgr.info "Result: %s" r;
     match Hashtbl.add table ~key:r ~data:r with
     | `Duplicate -> false
     | `Ok -> true
@@ -97,7 +96,7 @@ let string_of_synth_op = function
 let string_of_synth_op_list l =
   List.to_string string_of_synth_op l
 
-  (* From: http://rosettacode.org/wiki/Permutations#OCaml *)
+(* From: http://rosettacode.org/wiki/Permutations#OCaml *)
 let rec permutations l =
   let n = List.length l in
   if n = 1 then [l] else
@@ -260,9 +259,8 @@ and loop ~simple ~maxsize ~depth ~ninputs ~block ~counts acc =
     List.fold ops ~init:acc ~f:(fold ~simple ~maxsize ~depth ~ninputs ~block ~counts)
   | _ -> acc
 
-let gen ?(all=false) ?(print=false) ?(simple=false) maxsize phase =
+let gen ?(print=false) ?(simple=false) size phase =
   assert (phase = Decode);
-  let found = ref [] in
   (* let worker h = *)
   (*   Pipe.iter_without_pushback (Hub.listen_simple h) ~f:(fun (id, op) -> *)
   (*       Log.Global.debug "Got op %s" (string_of_synth_op op); *)
@@ -271,14 +269,14 @@ let gen ?(all=false) ?(print=false) ?(simple=false) maxsize phase =
   (*   >>| fun () -> `Done *)
   (* in *)
   Lgr.info "Generating %s modes of size %d"
-    (if simple then "simple" else "normal") maxsize;
+    (if simple then "simple" else "normal") size;
   let counts = if simple then counts_simple else counts in
-  List.iter initial ~f:(fun op ->
-      let blocks =
-        fold ~simple ~maxsize ~depth:maxsize ~ninputs:0 ~block:[] ~counts [] op in
-      found := List.append blocks !found
-    );
-  let found = remove_dups !found in
+  let f acc op = 
+    let blocks = fold ~simple ~maxsize:size ~depth:size ~ninputs:0 ~block:[]
+        ~counts [] op in
+    List.append blocks acc
+  in
+  let found = List.fold initial ~init:[] ~f |> remove_dups ~simple in
   (* Deferred.List.iter (\* ~how:`Parallel *\) initial ~f:(fun op -> *)
   (*     (\* Worker.spawn_exn () ~on_failure:Error.raise *\) *)
   (*     (\* >>= fun worker -> *\) *)
@@ -295,13 +293,6 @@ let gen ?(all=false) ?(print=false) ?(simple=false) maxsize phase =
   (* return (remove_dups !found) >>| fun found -> *)
   printf "Tried: %d\n%!" !try_count;
   if print then
-    AeInst.print_modes found maxsize;
+    List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block));
   printf "# found modes: %d\n%!" (List.length found);
-  begin
-    if all then
-      let minsize = min minsize maxsize in
-      for i = minsize to maxsize do
-        printf "# modes of size %d = %d\n%!" i (AeInst.count found i)
-      done
-  end;
   shutdown ()

@@ -65,4 +65,4 @@ let string_of_op = function
   | StackInst i -> string_of_stack_inst i
 
 let string_of_op_list l =
-  List.to_string string_of_op l
+  List.map l ~f:string_of_op |> String.concat ~sep:" "

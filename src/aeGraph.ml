@@ -15,12 +15,10 @@ let string_of_typ = function
 type map = { typ : typ; ctr : int }
 
 module V = struct
-  (* Each vertex contains three elements: the instruction the vertex represents,
-     a map reference for checking security of the graph, and a string reference
-     for evaluating the graph.  *)
-  (* XXX: Can we do this without storing the map ref and string ref within the
-     vertex type? *)
-  type t = inst * map ref * string ref
+  (* Each vertex contains two elements: the instruction the vertex represents
+     and a map reference for checking security of the graph.  *)
+  (* XXX: Can we do this without storing the map ref within the vertex type? *)
+  type t = inst * map ref
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
@@ -35,17 +33,17 @@ module Dijkstra = Graph.Path.Dijkstra(G)(struct
   end)
 
 let string_of_v v =
-  let inst, _, _ = G.V.label v in
+  let inst, _ = G.V.label v in
   string_of_inst inst
 
 let string_of_e e =
-  let src, _, _ = G.E.src e |> G.V.label in
-  let dst, _, _ = G.E.dst e |> G.V.label in
+  let src, _ = G.E.src e |> G.V.label in
+  let dst, _ = G.E.dst e |> G.V.label in
   [string_of_inst src; string_of_inst dst]
   |> String.concat ~sep:" -> "
 
 let full_string_of_v v =
-  let _, map, _ = G.V.label v in
+  let _, map = G.V.label v in
   [string_of_typ !map.typ; Int.to_string !map.ctr]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
@@ -54,7 +52,7 @@ let find_vertex_by_inst g inst =
     match r with
     | Some _ -> r
     | None ->
-      let inst', _, _ = G.V.label v in
+      let inst', _ = G.V.label v in
       if inst' = inst then Some v else None
   in
   Option.value_exn (G.fold_vertex f g None)
@@ -80,7 +78,7 @@ let create block phase =
   let f acc op =
     match op with
     | Inst i ->
-      let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }, ref "") in
+      let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }) in
       G.add_vertex g dst;
       pop (AeInst.n_in op) ~dst ~op >>= fun _ ->
       push (AeInst.n_out op) ~dst   >>= fun _ ->
@@ -117,7 +115,7 @@ let create block phase =
 
 module type Phase = sig val phase : phase end
 
-let display ?(save=false) t t' t'' =
+let display ?(save=None) t t' t'' =
   let module Display (M : Phase) = struct
     include G
     let ctr = ref 1
@@ -144,7 +142,7 @@ let display ?(save=false) t t' t'' =
       `Fontsize 10;
     ]
     let vertex_attributes v =
-      let inst, _, _ = G.V.label v in
+      let inst, _ = G.V.label v in
       match inst with
       | _ -> [
           `Label (string_of_inst inst);
@@ -180,20 +178,19 @@ let display ?(save=false) t t' t'' =
   let tmps = List.map phases ~f:tmpfile in
   List.iter2_exn [t; t'; t''] tmps ~f:create;
   let command =
-    if save then
-      let file = "mode.png" in
-      "gvpack -array_i -u " ^ (String.concat ~sep:" " tmps) ^
-      " 2>/dev/null | dot -Tpng > " ^ file
-    else
-      "gvpack -array_i -u " ^ (String.concat ~sep:" " tmps) ^
-      " 2>/dev/null | dot -Tpng | feh -"
+    let str = match save with
+      | None -> "| feh -"
+      | Some file -> "> " ^ file
+    in
+    "gvpack -array_i -u " ^ (String.concat ~sep:" " tmps) ^
+    " 2>/dev/null | dot -Tpng " ^ str
   in
   ignore (Sys.command command);
   List.iter tmps ~f:Sys.remove
 
 let cipher = new Cryptokit.Block.aes_encrypt "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
 
-let eval t =
+let eval t ~simple =
   let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
   let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s
                    |> String.uppercase in
@@ -213,48 +210,47 @@ let eval t =
     let xor c c' = chr ((ord c) lxor (ord c')) in
     String.mapi s (fun i c -> xor c s'.[i])
   in
-  let fin1, fin2, out1, out2 = ref "", ref "", ref "", ref "" in
-  let f v =
-    let inst, _, s = G.V.label v in
+  let rec f v =
+    let inst, _ = G.V.label v in
     match inst with
-    | Msg1 | Msg2 ->
-      s := "12345678123456781234567812345678"
-    | Ini1 | Ini2 ->
-      s := "00000000000000000000000000000000"
+    | Msg1 -> "12345678123456781234567812345678"
+    | Msg2 -> "87654321876543218765432187654321"
+    | Ini1 | Ini2 -> "00000000000000000000000000000000"
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-      let _, _, s' = G.pred t.g v |> List.hd_exn |> G.V.label in
-      s := !s';
-      begin
-        match inst with
-        | Fin1 -> fin1 := !s
-        | Fin2 -> fin2 := !s
-        | Out1 -> out1 := !s
-        | Out2 -> out2 := !s
-        | _ -> ()
-      end
+      let v = G.pred t.g v |> List.hd_exn in
+      f v
     | Xor ->
       let ps = G.pred t.g v in
-      let _, _, s1 = List.nth_exn ps 0 |> G.V.label in
-      let _, _, s2 = List.nth_exn ps 1 |> G.V.label in
-      s := xor !s1 !s2
+      begin
+        match List.length ps with
+        (* The result of XORing a value with itself *)
+        | 1 -> "00000000000000000000000000000000"
+        | 2 ->
+          let l = List.map ps ~f in
+          xor (List.nth_exn l 0) (List.nth_exn l 1)
+        | _ -> assert false
+      end
     | Tbc ->
-      (* XXX: note quite a tweakable blockcipher, but hopefully sufficient for
-         our purposes *)
-      let _, _, s' = G.pred t.g v |> List.hd_exn |> G.V.label in
+      let v = G.pred t.g v |> List.hd_exn in
       let r = String.create 16 in
-      cipher#transform (ofhexstr !s') 0 r 0;
-      s := tohexstr r
+      cipher#transform (ofhexstr (f v)) 0 r 0;
+      tohexstr r
   in
-  Topo.iter f t.g;
   match t.phase with
   | Encode | Decode ->
-    String.concat ~sep:" " [!fin1; !fin2; !out1; !out2]
+    let l = [find_vertex_by_inst t.g Out1;
+             find_vertex_by_inst t.g Out2;
+             find_vertex_by_inst t.g Fin1] in
+    let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
+    List.map l ~f |> String.concat ~sep:" "
   | Tag ->
-    !out1
+    find_vertex_by_inst t.g Out1 |> f
+
+let mark_vertices v v' i = G.Mark.set v i; G.Mark.set v' i
 
 let create_encode_graph t =
+  let limit = 1000 in
   let g = G.create () in
-  let ctr = ref 1 in
   let find_vertex g mark =
     let f v a =
       match a with
@@ -263,37 +259,33 @@ let create_encode_graph t =
     in
     Option.value_exn (G.fold_vertex f g None)
   in
-  let add_vertices v checks =
-    if G.Mark.get v = 0 || G.Mark.get v = -1 then begin
-      let inst, _, _ = G.V.label v in
-      let inst' =
-        match inst with
-        | Msg1 -> Out1
-        | Msg2 -> Out2
-        | Out1 -> Msg1
-        | Out2 -> Msg2
-        | Ini1 | Ini2 | Fin1 | Fin2 | Dup | Xor | Tbc as i -> i
-      in
-      let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }, ref "") in
-      G.add_vertex g v';
-      let checks =
-        match inst' with
-        | Out1 | Out2 -> v' :: checks
-        | _ -> checks
-      in
-      let set v v' i = G.Mark.set v i; G.Mark.set v' i in
-      set v v' (if G.Mark.get v = -1 then !ctr + 100 else !ctr);
-      ctr := !ctr + 1;
-      checks
-    end else checks
+  let add_vertices v (ctr, acc) =
+    assert (G.Mark.get v = 0 || G.Mark.get v = -1);
+    let inst, _ = G.V.label v in
+    let inst' =
+      match inst with
+      | Msg1 -> Out1
+      | Msg2 -> Out2
+      | Out1 -> Msg1
+      | Out2 -> Msg2
+      | _ as i -> i
+    in
+    let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }) in
+    G.add_vertex g v';
+    mark_vertices v v' (if G.Mark.get v = -1 then ctr + limit else ctr);
+    let acc = match inst' with
+      | Out1 | Out2 -> v' :: acc
+      | _ -> acc
+    in
+    ctr + 1, acc
   in
-  let checks = G.fold_vertex add_vertices t.g [] in
+  let _, checks = G.fold_vertex add_vertices t.g (1, []) in
   let rec add_edges v =
     let add_edge g src dst =
       let src = find_vertex g (G.Mark.get src) in
       let dst = find_vertex g (G.Mark.get dst) in
       let e =
-        if G.Mark.get src >= 100 && G.Mark.get dst >= 100 then
+        if G.Mark.get src >= limit && G.Mark.get dst >= limit then
           G.E.create dst () src
         else
           G.E.create src () dst
@@ -308,37 +300,29 @@ let create_encode_graph t =
   { g = g; phase = Encode; checks = checks }
 
 let derive_encode_graph t =
-  Lgr.info "Deriving encoding graph";
+  Lgr.debug "Deriving Encode graph";
   assert (t.phase = Decode);
+  let open Or_error.Monad_infix in
   let mark_path msg out =
-    let f e =
-      G.Mark.set (G.E.src e) (-1);
-      G.Mark.set (G.E.dst e) (-1)
-    in
-    try
-      let path, _ = Dijkstra.shortest_path t.g msg out in
-      List.iter path f;
-      Ok ()
-    with _ ->
-      Or_error.error_string
-                (sprintf "No path from %s to %s" (string_of_v msg)
-                   (string_of_v out))
+    let f e = mark_vertices (G.E.src e) (G.E.dst e) (-1) in
+    begin
+      try let path, _ = Dijkstra.shortest_path t.g msg out in Ok path with _ ->
+        Or_error.errorf "No path from %s to %s" (string_of_v msg)
+          (string_of_v out)
+    end >>| fun path -> List.iter path f
   in
   G.Mark.clear t.g;
-  let open Or_error.Monad_infix in
   Or_error.combine_errors_unit
     [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
       mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
-    ]
-  >>| fun () -> 
-  create_encode_graph t
+    ] >>| fun () -> create_encode_graph t
 
 let check t types rand checks ~simple =
   Lgr.info "Checking %s %b" (List.to_string string_of_typ types) rand;
   let max_ctr = ref 0 in
   begin
     let f inst typ =
-      let _, map, _ = find_vertex_by_inst t.g inst |> G.V.label in
+      let _, map = find_vertex_by_inst t.g inst |> G.V.label in
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
@@ -354,17 +338,17 @@ let check t types rand checks ~simple =
     List.iter2_exn l types f
   end;
   let f v =
-    let inst, _, _ = G.V.label v in
+    let inst, _ = G.V.label v in
     begin
       match inst with
       | Msg1 | Msg2 | Ini1 | Ini2 -> ()
       | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-        let _, pmap, _ = G.pred t.g v |> List.hd_exn |> G.V.label in
-        let _, map, _ = G.V.label v in
+        let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
+        let _, map = G.V.label v in
         map := !pmap
       | Tbc ->
-        let _, pmap, _ = G.pred t.g v |> List.hd_exn |> G.V.label in
-        let _, map, _ = G.V.label v in
+        let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
+        let _, map = G.V.label v in
         if !pmap.typ = One || !pmap.typ = Rand || rand then
           begin
             max_ctr := !max_ctr + 1;
@@ -380,15 +364,15 @@ let check t types rand checks ~simple =
           else
             List.nth_exn ps 0, List.nth_exn ps 1
         in
-        let _, p1map, _ = G.V.label p1 in
-        let _, p2map, _ = G.V.label p2 in
+        let _, p1map = G.V.label p1 in
+        let _, p2map = G.V.label p2 in
         let p1map, p2map =
           if !p1map.ctr < !p2map.ctr then
             p2map, p1map
           else
             p1map, p2map
         in
-        let _, map, _ = G.V.label v in
+        let _, map = G.V.label v in
         let xor_types = function
           | Zero, Zero | One, One -> Zero
           | Zero, One | One, Zero -> One
@@ -408,7 +392,7 @@ let check t types rand checks ~simple =
   Topo.iter f t.g;
   (* Check that all nodes needing to be random are indeed marked random *)
   let f v =
-    let _, map, _ = G.V.label v in
+    let _, map = G.V.label v in
     !map.typ = Rand
   in
   match List.for_all checks ~f with

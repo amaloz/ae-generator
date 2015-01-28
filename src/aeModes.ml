@@ -84,3 +84,5 @@ let create decode tag = { decode_s = decode; tag_s = tag }
 
 let decode_string t = t.decode_s
 let tag_string t = t.tag_s
+
+let to_string t = t.decode_s ^ " " ^ t.tag_s
