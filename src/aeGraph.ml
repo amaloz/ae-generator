@@ -24,13 +24,14 @@ module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
 module Oper = Graph.Oper.I(G)
 module Dijkstra = Graph.Path.Dijkstra(G)(struct
-    type label = G.E.label
+    type edge = G.E.t
     type t = int
     let weight _ = Int.one
     let compare = Int.compare
     let add = Int.(+)
     let zero = Int.zero
   end)
+module Dfs = Graph.Traverse.Dfs(G)
 
 let string_of_v v =
   let inst, _ = G.V.label v in
@@ -248,89 +249,163 @@ let eval t ~simple =
 
 let mark_vertices v v' i = G.Mark.set v i; G.Mark.set v' i
 
-let create_encode_graph t =
-  let limit = 1000 in
-  let g = G.create () in
-  let find_vertex g mark =
-    let f v a =
-      match a with
-      | Some _ -> a
-      | None -> if G.Mark.get v = mark then Some v else None
-    in
-    Option.value_exn (G.fold_vertex f g None)
-  in
-  let add_vertices v (ctr, acc) =
-    assert (G.Mark.get v = 0 || G.Mark.get v = -1);
-    let inst, _ = G.V.label v in
-    let inst' =
-      match inst with
-      | Msg1 -> Out1
-      | Msg2 -> Out2
-      | Out1 -> Msg1
-      | Out2 -> Msg2
-      | _ as i -> i
-    in
-    let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }) in
-    G.add_vertex g v';
-    mark_vertices v v' (if G.Mark.get v = -1 then ctr + limit else ctr);
-    let acc = match inst' with
-      | Out1 | Out2 -> v' :: acc
-      | _ -> acc
-    in
-    ctr + 1, acc
-  in
-  let _, checks = G.fold_vertex add_vertices t.g (1, []) in
-  let add_edges v =
-    let add_edge g src dst =
-      let src = find_vertex g (G.Mark.get src) in
-      let dst = find_vertex g (G.Mark.get dst) in
-      let e =
-        if G.Mark.get src >= limit && G.Mark.get dst >= limit then
-          G.E.create dst () src
-        else
-          G.E.create src () dst
+let is_well_formed t =
+  let open Or_error.Monad_infix in
+  let f v r =
+    match r with
+    | Error _ -> r
+    | Ok () ->
+      let inst, _ = G.V.label v in
+      let ps = G.pred t.g v in
+      let ss = G.succ t.g v in
+      let bool =
+        match inst with
+        | Ini1 | Ini2 | Msg1 | Msg2 ->
+          List.length ps = 0 && List.length ss = 1
+        | Fin1 | Fin2 | Out1 | Out2 ->
+          List.length ps = 1 && List.length ss = 0
+        | Tbc ->
+          List.length ps = 1 && List.length ss = 1
+        | Dup ->
+          List.length ps = 1 && List.length ss = 2
+        | Xor ->
+          List.length ps = 2 && List.length ss = 1
       in
-      G.add_edge_e g e
-    in
-    let vs = G.succ t.g v in
-    List.iter vs (add_edge g v)
+      if bool then Ok ()
+      else Or_error.errorf "Invalid vertex %s" (string_of_inst inst)
   in
-  G.iter_vertex add_edges t.g;
-  G.Mark.clear g;
-  G.Mark.clear t.g;
-  { g = g; phase = Encode; checks = checks }
+  G.fold_vertex f t.g (Ok ()) >>= fun () ->
+  if Dfs.has_cycle t.g then
+    Or_error.error_string "Graph has a cycle"
+  else
+    Ok ()
 
 let derive_encode_graph t =
+  let open Or_error.Monad_infix in
   Lgr.info "Deriving Encode graph";
   assert (t.phase = Decode);
-  let open Or_error.Monad_infix in
-  let mark_path msg out =
+  let mark1 = -1 in
+  let mark2 = -2 in
+  let create_encode_graph t =
+    let path1 = 1000 in
+    let path2 = 2000 in
+    let is_path1 src dst =
+      G.Mark.get src >= path1 && G.Mark.get src < path2
+      && G.Mark.get dst >= path1 && G.Mark.get dst < path2
+    in
+    let is_path2 src dst = G.Mark.get src >= path2 && G.Mark.get dst >= path2 in
+    let g = G.create () in
+    let find_vertex g mark =
+      let f v a =
+        match a with
+        | Some _ -> a
+        | None -> if G.Mark.get v = mark then Some v else None
+      in
+      Option.value_exn (G.fold_vertex f g None)
+    in
+    let add_vertices v (ctr, acc) =
+      assert (G.Mark.get v = 0 || G.Mark.get v = mark1 || G.Mark.get v = mark2);
+      let inst, _ = G.V.label v in
+      let inst' =
+        match inst with
+        | Msg1 -> Out1
+        | Msg2 -> Out2
+        | Out1 -> Msg1
+        | Out2 -> Msg2
+        | _ as i -> i
+      in
+      let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }) in
+      G.add_vertex g v';
+      let ctr' =
+        if G.Mark.get v = mark1 then ctr + path1
+        else if G.Mark.get v = mark2 then ctr + path2
+        else ctr
+      in
+      mark_vertices v v' ctr';
+      let acc = match inst' with
+        | Out1 | Out2 -> v' :: acc
+        | _ -> acc
+      in
+      ctr + 1, acc
+    in
+    let _, checks = G.fold_vertex add_vertices t.g (1, []) in
+    let add_edges v =
+      let add_edge g src dst =
+        let src = find_vertex g (G.Mark.get src) in
+        let dst = find_vertex g (G.Mark.get dst) in
+        let e =
+          if is_path1 src dst || is_path2 src dst then
+            G.E.create dst () src
+          else
+            G.E.create src () dst
+        in
+        G.add_edge_e g e
+      in
+      List.iter (G.succ t.g v) ~f:(add_edge g v)
+    in
+    G.iter_vertex add_edges t.g;
+    G.Mark.clear g;
+    Ok { g = g; phase = Encode; checks = checks }
+  in
+  let mark_path msg out i =
+    assert (i < 0);
+    (* Determine whether there is a path from msg to out *)
+    begin
+      try
+        let path, _ = Dijkstra.shortest_path t.g msg out in
+        Ok path
+      with Not_found ->
+        Or_error.errorf "No path from %s to %s" (string_of_v msg)
+          (string_of_v out)
+    end >>= fun path ->
+    (* If so, check that only one such path exists *)
+    (* let exists_path src dst = *)
+    (*   try *)
+    (*     ignore (Dijkstra.shortest_path t.g src dst); *)
+    (*     true *)
+    (*   with Not_found -> false *)
+    (* in *)
+    (* let f r e = *)
+    (*   match r with *)
+    (*   | Error _ -> r *)
+    (*   | Ok () -> *)
+    (*     let v = G.E.dst e in *)
+    (*     let inst, _ = G.V.label v in *)
+    (*     if inst = Dup then *)
+    (*       let vs = G.succ t.g v in *)
+    (*       let cnt = List.count vs ~f:(fun v -> exists_path v out) in *)
+    (*       match cnt with *)
+    (*       | 1 -> Ok () *)
+    (*       | 2 -> Ok () (\* Or_error.errorf "Two paths between %s and %s" *\) *)
+    (*              (\*   (string_of_v msg) (string_of_v out) *\) *)
+    (*       | _ -> assert false *)
+    (*     else Ok () *)
+    (* in *)
+    (* List.fold path ~init:(Ok ()) ~f >>= fun () -> *)
+    (* If so, tag the vertices on the path *)
     let f err e =
       match err with
       | Error _ -> err
       | Ok _ ->
         let src, dst = G.E.src e, G.E.dst e in
         Lgr.debug "%s -> %s" (string_of_v src) (string_of_v dst);
-        if G.Mark.get dst = -1 then
+        if G.Mark.get dst < 0 then
           Or_error.errorf "Shared edge found between %s and %s"
             (string_of_v msg) (string_of_v out)
         else begin
-          mark_vertices (G.E.src e) (G.E.dst e) (-1);
+          mark_vertices (G.E.src e) (G.E.dst e) i;
           Ok ()
         end
     in
-    begin
-      try let path, _ = Dijkstra.shortest_path t.g msg out in Ok path with _ ->
-        Or_error.errorf "No path from %s to %s" (string_of_v msg)
-          (string_of_v out)
-    end >>= fun path ->
     List.fold path ~init:(Ok ()) ~f
   in
   G.Mark.clear t.g;
   Or_error.combine_errors_unit
-    [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1);
-      mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2);
-    ] >>| fun () -> create_encode_graph t
+    [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1) (-1);
+      mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2) (-2);
+    ] >>= fun () ->
+  create_encode_graph t(*  >>= fun t -> *)
+  (* is_well_formed t >>| fun () -> t *)
 
 let check t types rand checks ~simple =
   Lgr.info "Checking %s %b" (List.to_string string_of_typ types) rand;

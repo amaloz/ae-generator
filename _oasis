@@ -21,7 +21,6 @@ BuildDepends: async,
               cryptokit,
               dolog,
               ocamlgraph,
-              rpc_parallel,
               threads
 
 Executable test
