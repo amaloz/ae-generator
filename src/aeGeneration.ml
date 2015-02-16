@@ -3,12 +3,10 @@ open AeInclude
 type synthInst =
   | Start
   | Terminal
-with bin_io
 
 type synth_op =
   | Op of op
   | SynthInst of synthInst
-with bin_io
 
 let string_of_synth_inst = function
   | Start -> "START"

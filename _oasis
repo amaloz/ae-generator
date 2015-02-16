@@ -13,11 +13,7 @@ Description:
 AlphaFeatures: ocamlbuild_more_args
 XOCamlbuildExtraArgs: -cflag -safe-string
 
-BuildDepends: async,
-              async_parallel,
-              bin_prot,
-              bin_prot.syntax,
-              core,
+BuildDepends: core,
               cryptokit,
               dolog,
               ocamlgraph,

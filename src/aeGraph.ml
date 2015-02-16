@@ -22,16 +22,6 @@ module V = struct
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
-module Oper = Graph.Oper.I(G)
-module Dijkstra = Graph.Path.Dijkstra(G)(struct
-    type edge = G.E.t
-    type t = int
-    let weight _ = Int.one
-    let compare = Int.compare
-    let add = Int.(+)
-    let zero = Int.zero
-  end)
-module Dfs = Graph.Traverse.Dfs(G)
 
 let string_of_v v =
   let inst, _ = G.V.label v in
@@ -49,14 +39,15 @@ let full_string_of_v v =
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
-  let f v r =
-    match r with
-    | Some _ -> r
+  let f v = function
+    | Some _ as r -> r
     | None ->
       let inst', _ = G.V.label v in
       if inst' = inst then Some v else None
   in
-  Option.value_exn (G.fold_vertex f g None)
+  match G.fold_vertex f g None with
+  | None -> raise Not_found
+  | Some v -> v
 
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
@@ -84,14 +75,10 @@ let create block phase =
       pop (AeInst.n_in op) ~dst ~op >>= fun _ ->
       push (AeInst.n_out op) ~dst   >>= fun _ ->
       acc                           >>| fun acc ->
-      if phase = Encode && (i = Out1 || i = Out2) then
-        dst :: acc
-      else if phase = Decode && i = Fin1 then
-        [dst]
-      else if phase = Tag && i = Out1 then
-        [dst]
-      else
-        acc
+      if phase = Encode && (i = Out1 || i = Out2) then dst :: acc
+      else if phase = Decode && i = Fin1 then [dst]
+      else if phase = Tag && i = Out1 then [dst]
+      else acc
     | StackInst i ->
       let open Option.Monad_infix in
       let result = match i with
@@ -158,7 +145,7 @@ let display ?(save=None) t t' t'' =
     (* XXX: This is ugly.  We want to output the dot file for the graph, but
        change the name of the graph from "G" to "clusterG" so that when we use
        gvpack to combine the graphs, each graph is in a box.  We do this by
-       first writing the graph to a (temporary) file, and the creating a new
+       first writing the graph to a (temporary) file, and then creating a new
        file which is exactly the same as the old file except that the first line
        is changed.  This is ugly, and there is probably a cleaner way to do
        it. *)
@@ -247,165 +234,128 @@ let eval t ~simple =
   | Tag ->
     find_vertex_by_inst t.g Out1 |> f
 
-let mark_vertices v v' i = G.Mark.set v i; G.Mark.set v' i
-
-let is_well_formed t =
-  let open Or_error.Monad_infix in
-  let f v r =
-    match r with
-    | Error _ -> r
-    | Ok () ->
-      let inst, _ = G.V.label v in
-      let ps = G.pred t.g v in
-      let ss = G.succ t.g v in
-      let bool =
-        match inst with
-        | Ini1 | Ini2 | Msg1 | Msg2 ->
-          List.length ps = 0 && List.length ss = 1
-        | Fin1 | Fin2 | Out1 | Out2 ->
-          List.length ps = 1 && List.length ss = 0
-        | Tbc ->
-          List.length ps = 1 && List.length ss = 1
-        | Dup ->
-          List.length ps = 1 && List.length ss = 2
-        | Xor ->
-          List.length ps = 2 && List.length ss = 1
-      in
-      if bool then Ok ()
-      else Or_error.errorf "Invalid vertex %s" (string_of_inst inst)
-  in
-  G.fold_vertex f t.g (Ok ()) >>= fun () ->
-  if Dfs.has_cycle t.g then
-    Or_error.error_string "Graph has a cycle"
-  else
-    Ok ()
+exception Unencryptable of string
 
 let derive_encode_graph t =
-  let open Or_error.Monad_infix in
-  Lgr.info "Deriving Encode graph";
   assert (t.phase = Decode);
-  let mark1 = -1 in
-  let mark2 = -2 in
-  let create_encode_graph t =
-    let path1 = 1000 in
-    let path2 = 2000 in
-    let is_path1 src dst =
-      G.Mark.get src >= path1 && G.Mark.get src < path2
-      && G.Mark.get dst >= path1 && G.Mark.get dst < path2
+  Lgr.info "Deriving Encode graph";
+  let g = G.create () in
+  let map_inst = function
+    | Msg1 -> Out1
+    | Msg2 -> Out2
+    | Out1 -> Msg1
+    | Out2 -> Msg2
+    | _ as i -> i
+  in
+  let find_vertex g mark =
+    let f v = function
+      | Some _ as a -> a
+      | None -> if G.Mark.get v = mark then Some v else None
     in
-    let is_path2 src dst = G.Mark.get src >= path2 && G.Mark.get dst >= path2 in
-    let g = G.create () in
-    let find_vertex g mark =
-      let f v a =
-        match a with
-        | Some _ -> a
-        | None -> if G.Mark.get v = mark then Some v else None
-      in
-      Option.value_exn (G.fold_vertex f g None)
+    match G.fold_vertex f g None with
+    | Some v -> v
+    | None -> raise Not_found
+  in
+  let mark v =
+    (* XXX: This'll break for graphs with >= 1000 nodes. *)
+    assert (G.Mark.get v <= 1000);
+    G.Mark.set v (G.Mark.get v + 1000) in
+  let is_marked v = G.Mark.get v > 1000 in
+  let f v (ctr, vs, checks) =
+    let inst, _ = G.V.label v in
+    let v' = G.V.create (map_inst inst, ref { typ = Bot; ctr = 0 }) in
+    G.add_vertex g v';
+    (* Give each vertex a unique mark, and make the two marks equal in both the
+       old graph and the new graph, so that we can locate the same nodes between
+       the two graphs. *)
+    G.Mark.set v ctr;
+    G.Mark.set v' ctr;
+    let checks =
+      match map_inst inst with
+      | Out1 | Out2 -> v' :: checks
+      | _ -> checks
     in
-    let add_vertices v (ctr, acc) =
-      assert (G.Mark.get v = 0 || G.Mark.get v = mark1 || G.Mark.get v = mark2);
-      let inst, _ = G.V.label v in
-      let inst' =
-        match inst with
-        | Msg1 -> Out1
-        | Msg2 -> Out2
-        | Out1 -> Msg1
-        | Out2 -> Msg2
-        | _ as i -> i
-      in
-      let v' = G.V.create (inst', ref { typ = Bot; ctr = 0 }) in
-      G.add_vertex g v';
-      let ctr' =
-        if G.Mark.get v = mark1 then ctr + path1
-        else if G.Mark.get v = mark2 then ctr + path2
-        else ctr
-      in
-      mark_vertices v v' ctr';
-      let acc = match inst' with
-        | Out1 | Out2 -> v' :: acc
-        | _ -> acc
-      in
-      ctr + 1, acc
-    in
-    let _, checks = G.fold_vertex add_vertices t.g (1, []) in
-    let add_edges v =
-      let add_edge g src dst =
-        let src = find_vertex g (G.Mark.get src) in
-        let dst = find_vertex g (G.Mark.get dst) in
-        let e =
-          if is_path1 src dst || is_path2 src dst then
-            G.E.create dst () src
-          else
-            G.E.create src () dst
-        in
-        G.add_edge_e g e
-      in
-      List.iter (G.succ t.g v) ~f:(add_edge g v)
-    in
-    G.iter_vertex add_edges t.g;
-    G.Mark.clear g;
+    match inst with
+    | Out1 | Out2 | Ini1 | Ini2 ->
+      mark v; mark v'; (ctr + 1, vs, checks)
+    | _ -> (ctr + 1, v :: vs, checks)
+  in
+  let _, vs, checks = G.fold_vertex f t.g (1, [], []) in
+  let f acc v =
+    let neighbors v = List.append (G.succ t.g v) (G.pred t.g v) in
+    let add_edge src dst =
+      let e = G.E.create src () dst in G.add_edge_e g e in
+    let add_edge_and_mark v src dst acc =
+      add_edge src dst; mark v; mark dst; acc in
+    let of_bool b = if b then 1 else 0 in
+    let vs = neighbors v |> List.to_array in
+    let v_new = find_vertex g (G.Mark.get v) in
+    let inst, _ = G.V.label v in
+    match inst with
+    | Msg1 | Msg2 | Fin1 | Fin2 ->
+      let v' = vs.(0) in
+      let v'_new = find_vertex g (G.Mark.get v') in
+      if is_marked v'_new then add_edge_and_mark v v'_new v_new acc
+      else v :: acc
+    | Tbc ->
+      let v1, v2 = vs.(0), vs.(1) in
+      let v1_new = find_vertex g (G.Mark.get v1) in
+      let v2_new = find_vertex g (G.Mark.get v2) in
+      if is_marked v1_new && is_marked v2_new then
+        raise (Unencryptable "TBC: Both vertices marked")
+      else if is_marked v1_new then add_edge_and_mark v v1_new v_new acc
+      else if is_marked v2_new then add_edge_and_mark v v2_new v_new acc
+      else v :: acc
+    | Dup ->
+      if Array.length vs = 2 then
+        raise (Unencryptable "DUP: Only one outgoing edge")
+      else
+        let v1, v2, v3 = vs.(0), vs.(1), vs.(2) in
+        let v1_new = find_vertex g (G.Mark.get v1) in
+        let v2_new = find_vertex g (G.Mark.get v2) in
+        let v3_new = find_vertex g (G.Mark.get v3) in
+        let cnt = (is_marked v1_new |> of_bool)
+                  + (is_marked v2_new |> of_bool)
+                  + (is_marked v3_new |> of_bool) in
+        if cnt > 1 then raise (Unencryptable "DUP: More than one vertex marked")
+        else if is_marked v1_new then add_edge_and_mark v v1_new v_new acc
+        else if is_marked v2_new then add_edge_and_mark v v2_new v_new acc
+        else if is_marked v3_new then add_edge_and_mark v v3_new v_new acc
+        else v :: acc
+    | Xor ->
+      if Array.length vs = 2 then
+        raise (Unencryptable "XOR: Only one incoming edge")
+      else
+        let v1, v2, v3 = vs.(0), vs.(1), vs.(2) in
+        let v1_new = find_vertex g (G.Mark.get v1) in
+        let v2_new = find_vertex g (G.Mark.get v2) in
+        let v3_new = find_vertex g (G.Mark.get v3) in
+        let cnt = (is_marked v1_new |> of_bool)
+                  + (is_marked v2_new |> of_bool)
+                  + (is_marked v3_new |> of_bool) in
+        if cnt = 3 then raise (Unencryptable "XOR: Too many vertices marked")
+        else if cnt = 2 then begin
+          if is_marked v1_new then add_edge v1_new v_new;
+          if is_marked v2_new then add_edge v2_new v_new;
+          if is_marked v3_new then add_edge v3_new v_new;
+          mark v; mark v_new; acc
+        end else v :: acc
+    | Ini1 | Ini2 | Out1 | Out2 -> assert false
+  in
+  let rec loop l =
+    if not (List.is_empty l) then begin
+      Lgr.debug "Looping over %s" (List.to_string l ~f:string_of_v);
+      let l' = List.fold l ~init:[] ~f |> List.rev in
+      if l = l' then
+        raise (Unencryptable "Reached fixed point but list not empty");
+      loop l'
+    end
+  in
+  try
+    loop vs;
     Ok { g = g; phase = Encode; checks = checks }
-  in
-  let mark_path msg out i =
-    assert (i < 0);
-    (* Determine whether there is a path from msg to out *)
-    begin
-      try
-        let path, _ = Dijkstra.shortest_path t.g msg out in
-        Ok path
-      with Not_found ->
-        Or_error.errorf "No path from %s to %s" (string_of_v msg)
-          (string_of_v out)
-    end >>= fun path ->
-    (* If so, check that only one such path exists *)
-    (* let exists_path src dst = *)
-    (*   try *)
-    (*     ignore (Dijkstra.shortest_path t.g src dst); *)
-    (*     true *)
-    (*   with Not_found -> false *)
-    (* in *)
-    (* let f r e = *)
-    (*   match r with *)
-    (*   | Error _ -> r *)
-    (*   | Ok () -> *)
-    (*     let v = G.E.dst e in *)
-    (*     let inst, _ = G.V.label v in *)
-    (*     if inst = Dup then *)
-    (*       let vs = G.succ t.g v in *)
-    (*       let cnt = List.count vs ~f:(fun v -> exists_path v out) in *)
-    (*       match cnt with *)
-    (*       | 1 -> Ok () *)
-    (*       | 2 -> Ok () (\* Or_error.errorf "Two paths between %s and %s" *\) *)
-    (*              (\*   (string_of_v msg) (string_of_v out) *\) *)
-    (*       | _ -> assert false *)
-    (*     else Ok () *)
-    (* in *)
-    (* List.fold path ~init:(Ok ()) ~f >>= fun () -> *)
-    (* If so, tag the vertices on the path *)
-    let f err e =
-      match err with
-      | Error _ -> err
-      | Ok _ ->
-        let src, dst = G.E.src e, G.E.dst e in
-        Lgr.debug "%s -> %s" (string_of_v src) (string_of_v dst);
-        if G.Mark.get dst < 0 then
-          Or_error.errorf "Shared edge found between %s and %s"
-            (string_of_v msg) (string_of_v out)
-        else begin
-          mark_vertices (G.E.src e) (G.E.dst e) i;
-          Ok ()
-        end
-    in
-    List.fold path ~init:(Ok ()) ~f
-  in
-  G.Mark.clear t.g;
-  Or_error.combine_errors_unit
-    [ mark_path (find_vertex_by_inst t.g Msg1) (find_vertex_by_inst t.g Out1) (-1);
-      mark_path (find_vertex_by_inst t.g Msg2) (find_vertex_by_inst t.g Out2) (-2);
-    ] >>= fun () ->
-  create_encode_graph t(*  >>= fun t -> *)
-  (* is_well_formed t >>| fun () -> t *)
+  with Unencryptable err ->
+    Or_error.errorf "Cannot derive encode graph: %s" err
 
 let check t types rand checks ~simple =
   Lgr.info "Checking %s %b" (List.to_string string_of_typ types) rand;
@@ -429,67 +379,69 @@ let check t types rand checks ~simple =
   end;
   let f v =
     let inst, _ = G.V.label v in
-    begin
-      match inst with
-      | Msg1 | Msg2 | Ini1 | Ini2 -> ()
-      | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-        let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
-        let _, map = G.V.label v in
+    match inst with
+    | Msg1 | Msg2 | Ini1 | Ini2 -> ()
+    | Fin1 | Fin2 | Out1 | Out2 | Dup ->
+      let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
+      let _, map = G.V.label v in
+      map := !pmap
+    | Tbc ->
+      let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
+      let _, map = G.V.label v in
+      if !pmap.typ = One || !pmap.typ = Rand || rand then
+        begin
+          max_ctr := !max_ctr + 1;
+          map := { typ = Rand; ctr = !max_ctr }
+        end
+      else
         map := !pmap
-      | Tbc ->
-        let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
-        let _, map = G.V.label v in
-        if !pmap.typ = One || !pmap.typ = Rand || rand then
-          begin
-            max_ctr := !max_ctr + 1;
-            map := { typ = Rand; ctr = !max_ctr }
-          end
+    | Xor ->
+      let ps = G.pred t.g v in
+      let p1, p2 =
+        if List.length ps = 1 then
+          List.nth_exn ps 0, List.nth_exn ps 0
         else
-          map := !pmap
-      | Xor ->
-        let ps = G.pred t.g v in
-        let p1, p2 =
-          if List.length ps = 1 then
-            List.nth_exn ps 0, List.nth_exn ps 0
-          else
-            List.nth_exn ps 0, List.nth_exn ps 1
-        in
-        let _, p1map = G.V.label p1 in
-        let _, p2map = G.V.label p2 in
-        let p1map, p2map =
-          if !p1map.ctr < !p2map.ctr then
-            p2map, p1map
-          else
-            p1map, p2map
-        in
-        let _, map = G.V.label v in
-        let xor_types = function
-          | Zero, Zero | One, One -> Zero
-          | Zero, One | One, Zero -> One
-          | _ , _ -> assert false
-        in
-        if (!p1map.typ = Zero && !p2map.typ = Zero)
-        || (!p1map.typ = Zero && !p2map.typ = One)
-        || (!p1map.typ = One && !p2map.typ = Zero) then
-          map := { typ = xor_types (!p1map.typ, !p2map.typ); ctr = !p1map.ctr }
-        else if !p1map.typ = Rand && !p1map.ctr > !p2map.ctr then
-          map := { typ = Rand; ctr = !p1map.ctr }
+          List.nth_exn ps 0, List.nth_exn ps 1
+      in
+      let _, p1map = G.V.label p1 in
+      let _, p2map = G.V.label p2 in
+      let p1map, p2map =
+        if !p1map.ctr < !p2map.ctr then
+          p2map, p1map
         else
-          map := { typ = Bot; ctr = !p1map.ctr }
-    end;
-    Lgr.debug "%s" (full_string_of_v v)
+          p1map, p2map
+      in
+      let _, map = G.V.label v in
+      let xor_types = function
+        | Zero, Zero | One, One -> Zero
+        | Zero, One | One, Zero -> One
+        | _ , _ -> assert false
+      in
+      if (!p1map.typ = Zero && !p2map.typ = Zero)
+      || (!p1map.typ = Zero && !p2map.typ = One)
+      || (!p1map.typ = One && !p2map.typ = Zero) then
+        map := { typ = xor_types (!p1map.typ, !p2map.typ); ctr = !p1map.ctr }
+      else if !p1map.typ = Rand && !p1map.ctr > !p2map.ctr then
+        map := { typ = Rand; ctr = !p1map.ctr }
+      else
+        map := { typ = Bot; ctr = !p1map.ctr }
   in
-  Topo.iter f t.g;
+  let f' v = f v; Lgr.debug "%s" (full_string_of_v v) in
+  Topo.iter f' t.g;
   (* Check that all nodes needing to be random are indeed marked random *)
-  let f v =
-    let _, map = G.V.label v in
-    !map.typ = Rand
-  in
+  let f v = let _, map = G.V.label v in !map.typ = Rand in
   match List.for_all checks ~f with
-  | true -> Ok ()
-  | false -> Or_error.error_string
-               (sprintf "Graph insecure on inputs %s"
-                  (List.to_string types ~f:string_of_typ))
+  | true ->
+    if t.phase = Encode then
+      let ctr v = let _, map = G.V.label v in !map.ctr in
+      let a, b = List.nth_exn checks 0, List.nth_exn checks 1 in
+      if ctr a = ctr b then
+        Or_error.error_string "Graph insecure: counters are equal"
+      else
+        Ok ()
+    else Ok ()
+  | false -> Or_error.errorf "Graph insecure on inputs %s"
+               (List.to_string types ~f:string_of_typ)
 
 let is_secure_encode t =
   check t ~simple:false [Bot; Bot; Bot; Bot] true t.checks
