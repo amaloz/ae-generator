@@ -46,21 +46,23 @@ let spec_check =
     ~doc:"FILE Run against modes in FILE"
   +> flag "-save" (optional string)
     ~doc:"FILE Save mode to FILE instead of displaying"
+  +> flag "-misuse" no_arg
+    ~doc:" Check if given mode is misuse resistant"
   ++ spec_common
 
-let run_check mode decode tag check display eval file save simple debug () =
+let run_check mode decode tag check display eval file save misuse simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
-    | Some mode -> Ok mode
+    | Some mode -> Ok (mode, AeModes.decode_string mode)
     | None -> begin
         match decode, tag with
-        | Some decode, Some tag -> Ok (AeModes.create decode tag)
+        | Some decode, Some tag -> Ok (AeModes.create decode tag, decode)
         | Some decode, None ->
           let tag = if simple then default_tag_simple else default_tag in
           printf "Warning: No tag algorithm given.  Using default tag algorithm: %s\n%!"
             tag;
-          Ok (AeModes.create decode tag)
+          Ok (AeModes.create decode tag, decode)
         | None, _ -> Or_error.error_string "Decode algorithm is missing."
       end
   in
@@ -69,6 +71,12 @@ let run_check mode decode tag check display eval file save simple debug () =
     f mode.encode >>= fun () ->
     f mode.decode >>= fun () ->
     f mode.tag
+  in
+  let fmisuse mode =
+    if check then
+      AeGraph.is_misuse_resistant mode.encode mode.decode mode.tag ~simple
+    else
+      Or_error.error_string "-misuse must be used in conjunction with -check"
   in
   let feval mode =
     printf "Encode: %s\n%!" (AeGraph.eval mode.encode ~simple);
@@ -94,6 +102,7 @@ let run_check mode decode tag check display eval file save simple debug () =
     let mode = { encode = encode; decode = decode; tag = tag } in
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
+    begin if misuse then fmisuse mode else Ok () end        >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
   let read_file file =
@@ -136,11 +145,13 @@ let run_check mode decode tag check display eval file save simple debug () =
       if check || display || eval then
         Ok ()
       else
-        Or_error.error_string "One of -check, -display, or -eval must be used"
+        Or_error.error_string "One of -check, -display, -eval must be used"
     end >>= fun () ->
     match file with
     | Some file -> read_file file
-    | None -> get_mode mode >>= fun mode -> run_mode mode
+    | None -> get_mode mode >>= fun (mode, decode) ->
+      run_mode mode         >>| fun () ->
+      printf "%s\n%!" decode
   in
   begin
     match run () with

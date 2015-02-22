@@ -78,7 +78,11 @@ let is_pruneable op block =
 let remove_dups blocks ~simple =
   let table = String.Table.create () ~size:1024 in
   let f block =
-    let r = AeGraph.create block Decode |> ok_exn |> AeGraph.eval ~simple in
+    let decode = AeGraph.create block Decode |> ok_exn in
+    let encode = AeGraph.derive_encode_graph decode |> ok_exn in
+    let r = AeGraph.eval ~simple decode in
+    let r' = AeGraph.eval ~simple encode in
+    let r = String.concat ~sep:" " [r; r'] in
     Lgr.info "Decode: %s" (string_of_op_list block);
     Lgr.info "Result: %s" r;
     match Hashtbl.add table ~key:r ~data:r with

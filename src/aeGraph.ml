@@ -49,6 +49,14 @@ let find_vertex_by_inst g inst =
   | None -> raise Not_found
   | Some v -> v
 
+let find_all_vertices_by_inst g inst =
+  let f v acc =
+    let inst', _ = G.V.label v in
+    if inst' = inst then v :: acc else acc
+  in
+  let l = G.fold_vertex f g [] in
+  if l = [] then raise Not_found else l
+
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
 let create block phase =
@@ -357,8 +365,9 @@ let derive_encode_graph t =
   with Unencryptable err ->
     Or_error.errorf "Cannot derive encode graph: %s" err
 
-let check t types rand checks ~simple =
-  Lgr.info "Checking %s %b" (List.to_string string_of_typ types) rand;
+(* Runs the Map function mapping nodes to (type, ctr) tuples *)
+let map t types rand ~simple =
+  Lgr.info "Checking %s %b" (List.to_string string_of_typ (Array.to_list types)) rand;
   let max_ctr = ref 0 in
   begin
     let f inst typ =
@@ -371,11 +380,11 @@ let check t types rand checks ~simple =
     let l =
       match t.phase with
       | Encode | Decode ->
-        if simple then [Ini1; Msg1; Msg2] else [Ini1; Ini2; Msg1; Msg2]
+        if simple then [| Ini1; Msg1; Msg2 |] else [| Ini1; Ini2; Msg1; Msg2 |]
       | Tag ->
-        if simple then [Ini1] else [Ini1; Ini2]
+        if simple then [| Ini1 |] else [| Ini1; Ini2 |]
     in
-    List.iter2_exn l types f
+    Array.iter2_exn l types f
   end;
   let f v =
     let inst, _ = G.V.label v in
@@ -388,29 +397,20 @@ let check t types rand checks ~simple =
     | Tbc ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
-      if !pmap.typ = One || !pmap.typ = Rand || rand then
-        begin
+      if !pmap.typ = One || !pmap.typ = Rand || rand then begin
           max_ctr := !max_ctr + 1;
           map := { typ = Rand; ctr = !max_ctr }
-        end
-      else
-        map := !pmap
+      end else map := !pmap
     | Xor ->
       let ps = G.pred t.g v in
       let p1, p2 =
-        if List.length ps = 1 then
-          List.nth_exn ps 0, List.nth_exn ps 0
-        else
-          List.nth_exn ps 0, List.nth_exn ps 1
+        if List.length ps = 1 then List.nth_exn ps 0, List.nth_exn ps 0
+        else List.nth_exn ps 0, List.nth_exn ps 1
       in
       let _, p1map = G.V.label p1 in
       let _, p2map = G.V.label p2 in
       let p1map, p2map =
-        if !p1map.ctr < !p2map.ctr then
-          p2map, p1map
-        else
-          p1map, p2map
-      in
+        if !p1map.ctr < !p2map.ctr then p2map, p1map else p1map, p2map in
       let _, map = G.V.label v in
       let xor_types = function
         | Zero, Zero | One, One -> Zero
@@ -427,69 +427,185 @@ let check t types rand checks ~simple =
         map := { typ = Bot; ctr = !p1map.ctr }
   in
   let f' v = f v; Lgr.debug "%s" (full_string_of_v v) in
-  Topo.iter f' t.g;
-  (* Check that all nodes needing to be random are indeed marked random *)
+  Topo.iter f' t.g
+
+(* Runs Map and checks that all nodes needing to be random are indeed marked
+   random *)
+let check t types rand checks ~simple =
+  map t types rand ~simple;
   let f v = let _, map = G.V.label v in !map.typ = Rand in
   match List.for_all checks ~f with
-  | true ->
-    if t.phase = Encode then
-      let ctr v = let _, map = G.V.label v in !map.ctr in
-      let a, b = List.nth_exn checks 0, List.nth_exn checks 1 in
-      if ctr a = ctr b then
-        Or_error.error_string "Graph insecure: counters are equal"
-      else
-        Ok ()
-    else Ok ()
+  | true -> Ok ()
   | false -> Or_error.errorf "Graph insecure on inputs %s"
-               (List.to_string types ~f:string_of_typ)
+               (List.to_string (Array.to_list types) ~f:string_of_typ)
 
-let is_secure_encode t =
-  check t ~simple:false [Bot; Bot; Bot; Bot] true t.checks
-let is_secure_encode_simple t =
-  check t ~simple:true [Bot; Bot; Bot] true t.checks
+let is_secure_encode t types ~simple =
+  let check_ctrs checks =
+    let ctr v = let _, map = G.V.label v in !map.ctr in
+    let a, b = List.nth_exn checks 0, List.nth_exn checks 1 in
+    if ctr a <> ctr b then Ok ()
+    else Or_error.error_string "Graph insecure: counters are equal"
+  in
+  let open Or_error.Monad_infix in
+  check t types true t.checks ~simple >>= fun () ->
+  check_ctrs t.checks
 
-let is_secure_decode t =
-  let open Or_error.Monad_infix in
-  check t ~simple:false [Zero; Zero; One; Zero] false t.checks  >>= fun _ ->
-  check t ~simple:false [Zero; Zero; Zero; One] false t.checks  >>= fun _ ->
-  check t ~simple:false [Zero; Zero; One; One] false t.checks   >>= fun _ ->
-  check t ~simple:false [Rand; Zero; Zero; Zero] false t.checks >>= fun _ ->
-  check t ~simple:false [Rand; Zero; Zero; One] false t.checks  >>= fun _ ->
-  check t ~simple:false [Rand; Zero; One; Zero] false t.checks  >>= fun _ ->
-  check t ~simple:false [Rand; Zero; One; One] false t.checks   >>= fun _ ->
-  check t ~simple:false [Rand; One; Zero; Zero] false t.checks  >>= fun _ ->
-  check t ~simple:false [Rand; One; Zero; One] false t.checks   >>= fun _ ->
-  check t ~simple:false [Rand; One; One; Zero] false t.checks   >>= fun _ ->
-  check t ~simple:false [Rand; One; One; One] false t.checks
-let is_secure_decode_simple t =
-  let open Or_error.Monad_infix in
-  check t ~simple:true [Zero; One; Zero] false t.checks  >>= fun _ ->
-  check t ~simple:true [Zero; Zero; One] false t.checks  >>= fun _ ->
-  check t ~simple:true [Zero; One; One] false t.checks   >>= fun _ ->
-  check t ~simple:true [Rand; Zero; Zero] false t.checks >>= fun _ ->
-  check t ~simple:true [Rand; Zero; One] false t.checks  >>= fun _ ->
-  check t ~simple:true [Rand; One; Zero] false t.checks  >>= fun _ ->
-  check t ~simple:true [Rand; One; One] false t.checks
+let is_secure_decode t types ~simple =
+  let f acc types = match acc with
+    | Ok () -> check t types false t.checks ~simple
+    | Error _ as e -> e
+  in
+  List.fold ~init:(Ok ()) types ~f
 
-let is_secure_tag t =
+let is_secure_tag t randtypes types ~simple =
   let open Or_error.Monad_infix in
-  check t ~simple:false [Bot; Bot] true t.checks    >>= fun _ ->
-  check t ~simple:false [Rand; Zero] false t.checks >>= fun _ ->
-  check t ~simple:false [Rand; One] false t.checks
-let is_secure_tag_simple t =
-  let open Or_error.Monad_infix in
-  check t ~simple:true [Bot] true t.checks   >>= fun _ ->
-  check t ~simple:true [Rand] false t.checks
+  check t randtypes true t.checks ~simple >>= fun () ->
+  let f acc types = match acc with
+    | Ok () -> check t types false t.checks ~simple
+    | Error _ as e -> e
+  in
+  List.fold ~init:(Ok ()) types ~f
 
 let is_secure t ~simple =
   Lgr.info "Checking security of %s graph" @@ string_of_phase t.phase;
+  match t.phase with
+  | Encode ->
+    let types = if simple then [| Bot; Bot; Bot |] else [| Bot; Bot; Bot; Bot |] in
+    is_secure_encode t types ~simple
+  | Decode ->
+    let types =
+      if simple then [
+        [| Zero; One; Zero |];
+        [| Zero; Zero; One |];
+        [| Zero; One; One |];
+        [| Rand; Zero; Zero |];
+        [| Rand; Zero; One |];
+        [| Rand; One; Zero |];
+        [| Rand; One; One |]
+      ] else [
+        [| Zero; Zero; One; Zero |];
+        [| Zero; Zero; Zero; One |];
+        [| Zero; Zero; One; One |];
+        [| Rand; Zero; Zero; Zero |];
+        [| Rand; Zero; Zero; One |];
+        [| Rand; Zero; One; Zero |];
+        [| Rand; Zero; One; One |];
+        [| Rand; One; Zero; Zero |];
+        [| Rand; One; Zero; One |];
+        [| Rand; One; One; Zero |];
+        [| Rand; One; One; One |]
+      ]
+    in
+    is_secure_decode t types ~simple
+  | Tag ->
+    let randtypes = if simple then [| Bot |] else [| Bot; Bot |] in
+    let types = if simple then [
+        [| Rand |]
+      ] else [
+        [| Rand; Zero |];
+        [| Rand; One |];
+      ]
+    in
+    is_secure_tag t randtypes types ~simple
+
+let oae tenc tdec ttag types enc_checks dec_checks ~simple =
+  let open Or_error.Monad_infix in
+  check tdec types false dec_checks ~simple >>= fun () ->
+  check tenc types false enc_checks ~simple >>= fun () ->
+  let check_ctrs checks =
+    let ctr v = let _, map = G.V.label v in !map.ctr in
+    let cmp = 
+    if simple then
+      let a, b, c = checks.(0), checks.(1), checks.(2) in
+      ctr a = ctr b || ctr b = ctr c || ctr c = ctr a
+    else
+      let a, b, c, d = checks.(0), checks.(1), checks.(2), checks.(3) in
+      ctr a = ctr b || ctr b = ctr c || ctr c = ctr d || ctr d = ctr a
+    in
+    if cmp then Or_error.error_string "Graph not misuse resistant: counters are equal"
+    else Ok ()
+  in
+  check_ctrs (Array.of_list enc_checks)
+
+let simpleton t types check ~simple =
+  map t types false ~simple;
+  let tbcs = find_all_vertices_by_inst t.g Tbc in
+  let ctr = let _, map = G.V.label check in !map.ctr in
+  let f count v =
+    let _, map = G.V.label v in
+    if !map.typ = Rand && !map.ctr = ctr then count + 1
+    else count
+  in
+  List.fold ~init:0  tbcs ~f
+
+let is_misuse_resistant tenc tdec ttag ~simple =
+  let open Or_error.Monad_infix in
+  let f enc_checks dec_check types tag_types =
+    let f acc types =
+      match acc with
+      | Ok () -> oae tenc tdec ttag types enc_checks [dec_check] ~simple
+      | Error _ as e -> e
+    in
+    List.fold ~init:(Ok ()) types ~f >>= fun () ->
+    let f acc types =
+      match acc with
+      | Ok () -> check ttag types false ttag.checks ~simple
+      | Error _ as e -> e
+    in
+    List.fold ~init:(Ok ()) tag_types ~f >>= fun () ->
+    let f acc check =
+      match acc with
+      | Ok () ->
+        let f count types = count + simpleton tenc types check ~simple in
+        let count = List.fold ~init:0 types ~f in
+        if count <> 1 then Ok ()
+        else Or_error.error_string "Graph not misuse resistant: simpleton failed"
+      | Error _ as e -> e
+    in
+    List.fold ~init:(Ok ()) enc_checks ~f >>= fun () ->
+    let f count types = count + simpleton tdec types dec_check false in
+    let count = List.fold ~init:0 types ~f in
+    if count = 1 then Ok ()
+    else Or_error.error_string "Graph not misuse resistant: simpleton failed"
+  in
+  Lgr.info "Checking misuse resistance of scheme";
+  let out1 = find_vertex_by_inst tenc.g Out1 in
+  let out2 = find_vertex_by_inst tenc.g Out2 in
+  let fin1 = find_vertex_by_inst tenc.g Fin1 in
+  let dec_check = find_vertex_by_inst tdec.g Out1 in
   if simple then
-    match t.phase with
-    | Encode -> is_secure_encode_simple t
-    | Decode -> is_secure_decode_simple t
-    | Tag -> is_secure_tag_simple t
+    let enc_checks = [out1; out2; fin1] in
+    let types = [
+      [| Zero; Zero; One |];
+      [| Zero; One; Zero |];
+      [| Zero; One; One |];
+      [| Rand; Zero; Zero |];
+      [| Rand; Zero; One |];
+      [| Rand; One; Zero |];
+      [| Rand; One; One |];
+    ] in
+    let tag_types = [
+      [| Rand |];
+    ] in
+    f enc_checks dec_check types tag_types
   else
-    match t.phase with
-    | Encode -> is_secure_encode t
-    | Decode -> is_secure_decode t
-    | Tag -> is_secure_tag t
+    let fin2 = find_vertex_by_inst tenc.g Fin2 in
+    let enc_checks = [out1; out2; fin1; fin2] in
+    let types = [
+      [| Zero; Zero; Zero; One |];
+      [| Zero; Zero; One; Zero |];
+      [| Zero; Zero; One; One |];
+      [| Rand; Zero; Zero; Zero |];
+      [| Rand; Zero; Zero; One |];
+      [| Rand; Zero; One; Zero |];
+      [| Rand; Zero; One; One |];
+      [| Rand; One; Zero; Zero |];
+      [| Rand; One; Zero; One |];
+      [| Rand; One; One; Zero |];
+      [| Rand; One; One; One |]
+    ] in
+    let tag_types = [
+      [| Rand; Zero |];
+      [| Rand; One |]
+    ] in
+    f enc_checks dec_check types tag_types
