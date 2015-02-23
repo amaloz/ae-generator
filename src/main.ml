@@ -60,8 +60,8 @@ let run_check mode decode tag check display eval file save misuse simple debug (
         | Some decode, Some tag -> Ok (AeModes.create decode tag, decode)
         | Some decode, None ->
           let tag = if simple then default_tag_simple else default_tag in
-          printf "Warning: No tag algorithm given.  Using default tag algorithm: %s\n%!"
-            tag;
+          (* printf "Warning: No tag algorithm given.  Using default tag algorithm: %s\n%!" *)
+          (*   tag; *)
           Ok (AeModes.create decode tag, decode)
         | None, _ -> Or_error.error_string "Decode algorithm is missing."
       end
@@ -125,17 +125,35 @@ let run_check mode decode tag check display eval file save misuse simple debug (
     let total, blocks = In_channel.with_file file ~f in
     let blocks = AeGeneration.remove_dups blocks ~simple in
     let unique = List.length blocks in
-    let f count block =
-      let mode_s = string_of_op_list block in
-      let tag = if simple then default_tag_simple else default_tag in
-      let mode = AeModes.create mode_s tag in
-      match run_mode mode with
-      | Ok () -> printf "%s\n%!" mode_s; count + 1
-      | Error err -> eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err); count
-    in
-    let secure = List.fold ~init:0 blocks ~f in
     if check then
-      printf "Secure / Unique / Total: %d / %d / %d\n%!" secure unique total
+      let minsize = ref Int.max_value in
+      let maxsize = ref 0 in
+      let found = ref [] in
+      let f count block =
+        let mode_s = string_of_op_list block in
+        let tag = if simple then default_tag_simple else default_tag in
+        let mode = AeModes.create mode_s tag in
+        match run_mode mode with
+        | Ok () ->
+          printf "%s\n%!" mode_s;
+          let size = List.length block in
+          if size > !maxsize then maxsize := size;
+          if size < !minsize then minsize := size;
+          found := block :: !found;
+          count + 1
+        | Error err ->
+          eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err);
+          (* count *)
+          assert false
+      in
+      let secure = List.fold ~init:0 blocks ~f in
+      printf "Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
+      let count blocks size =
+        List.count blocks (fun block -> List.length block = size)
+      in
+      for i = !minsize to !maxsize do
+        printf "# modes of size %d = %d\n%!" i (count blocks  i) (* XXX: *)
+      done;
     else
       printf "Unique / Total: %d / %d\n%!" unique total;
     Ok ()

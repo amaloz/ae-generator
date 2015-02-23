@@ -126,20 +126,20 @@ let process_decode block ~simple =
     let open Or_error.Monad_infix in
     AeGraph.create block Decode        >>= fun decode ->
     AeGraph.derive_encode_graph decode >>= fun encode ->
-    AeGraph.is_secure encode ~simple   >>= fun _ ->
-    AeGraph.is_secure decode ~simple   >>| fun _ ->
+    AeGraph.is_secure encode ~simple   >>= fun () ->
+    AeGraph.is_secure decode ~simple   >>| fun () ->
     Lgr.info "Secure: %s" (string_of_op_list block);
     printf "%s\n%!" (string_of_op_list block);
     block
   in
   (* Replace terminal nodes with leaf nodes *)
-  let rec replace l l' ~typ =
-    match l with
+  let rec replace ~block ~perm ~typ =
+    match block with
     | x :: xs -> if x = SynthInst typ then
-        match l' with
-        | y :: ys -> Op y :: (replace xs ys ~typ)
+        match perm with
+        | y :: ys -> Op y :: (replace ~block:xs ~perm:ys ~typ)
         | _ -> assert false
-      else x :: (replace xs l' ~typ)
+      else x :: (replace ~block:xs ~perm ~typ)
     | [] -> []
   in
   let rec strip = function
@@ -155,14 +155,14 @@ let process_decode block ~simple =
     else start_perms, term_perms
   in
   let f perm =
-    let block = replace block perm Terminal in
-    let f perm = replace block perm Start |> strip |> process in
+    let block = replace ~block ~perm ~typ:Terminal in
+    let f perm = replace ~block ~perm ~typ:Start |> strip |> process in
     List.map starts ~f
   in
   let l = List.map terms ~f |> List.join in
   List.filter_map l ~f:(function
       | Ok block -> Some block
-      | Error e -> None)
+      | Error _ -> None)
 
 (* module Worker = struct *)
 (*   module T = struct *)

@@ -80,8 +80,8 @@ let create block phase =
     | Inst i ->
       let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }) in
       G.add_vertex g dst;
-      pop (AeInst.n_in op) ~dst ~op >>= fun _ ->
-      push (AeInst.n_out op) ~dst   >>= fun _ ->
+      pop (AeInst.n_in op) ~dst ~op >>= fun () ->
+      push (AeInst.n_out op) ~dst   >>= fun () ->
       acc                           >>| fun acc ->
       if phase = Encode && (i = Out1 || i = Out2) then dst :: acc
       else if phase = Decode && i = Fin1 then [dst]
@@ -397,9 +397,9 @@ let map t types rand ~simple =
     | Tbc ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
-      if !pmap.typ = One || !pmap.typ = Rand || rand then begin
-          max_ctr := !max_ctr + 1;
-          map := { typ = Rand; ctr = !max_ctr }
+      if rand || !pmap.typ = One || !pmap.typ = Rand then begin
+        max_ctr := !max_ctr + 1;
+        map := { typ = Rand; ctr = !max_ctr }
       end else map := !pmap
     | Xor ->
       let ps = G.pred t.g v in
@@ -410,23 +410,28 @@ let map t types rand ~simple =
       let _, p1map = G.V.label p1 in
       let _, p2map = G.V.label p2 in
       let p1map, p2map =
-        if !p1map.ctr < !p2map.ctr then p2map, p1map else p1map, p2map in
+        if !p1map.ctr < !p2map.ctr then !p2map, !p1map else !p1map, !p2map in
       let _, map = G.V.label v in
-      let xor_types = function
+      if (p1map.typ = Zero && p2map.typ = Zero)
+      || (p1map.typ = Zero && p2map.typ = One)
+      || (p1map.typ = One && p2map.typ = Zero) then
+        let xor_types = function
         | Zero, Zero | One, One -> Zero
         | Zero, One | One, Zero -> One
         | _ , _ -> assert false
-      in
-      if (!p1map.typ = Zero && !p2map.typ = Zero)
-      || (!p1map.typ = Zero && !p2map.typ = One)
-      || (!p1map.typ = One && !p2map.typ = Zero) then
-        map := { typ = xor_types (!p1map.typ, !p2map.typ); ctr = !p1map.ctr }
-      else if !p1map.typ = Rand && !p1map.ctr > !p2map.ctr then
-        map := { typ = Rand; ctr = !p1map.ctr }
+        in
+        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr }
+      else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
+        map := { typ = Rand; ctr = p1map.ctr }
       else
-        map := { typ = Bot; ctr = !p1map.ctr }
+        map := { typ = Bot; ctr = p1map.ctr }
   in
-  let f' v = f v; Lgr.debug "%s" (full_string_of_v v) in
+  let f' v =
+    f v;
+    let ps = G.pred t.g v in
+    let ps = List.to_string ps ~f:(fun p -> string_of_v p) in
+    Lgr.debug "%s | %s" (full_string_of_v v) ps
+  in
   Topo.iter f' t.g
 
 (* Runs Map and checks that all nodes needing to be random are indeed marked
@@ -440,15 +445,13 @@ let check t types rand checks ~simple =
                (List.to_string (Array.to_list types) ~f:string_of_typ)
 
 let is_secure_encode t types ~simple =
-  let check_ctrs checks =
-    let ctr v = let _, map = G.V.label v in !map.ctr in
-    let a, b = List.nth_exn checks 0, List.nth_exn checks 1 in
-    if ctr a <> ctr b then Ok ()
-    else Or_error.error_string "Graph insecure: counters are equal"
-  in
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
-  check_ctrs t.checks
+  let ctr v = let _, map = G.V.label v in !map.ctr in
+  assert (List.length t.checks = 2);
+  let a, b = List.nth_exn t.checks 0, List.nth_exn t.checks 1 in
+  if ctr a <> ctr b then Ok ()
+  else Or_error.error_string "Graph insecure: counters are equal"
 
 let is_secure_decode t types ~simple =
   let f acc types = match acc with
@@ -538,44 +541,49 @@ let simpleton t types check ~simple =
   in
   List.fold ~init:0  tbcs ~f
 
+let oae tenc tdec ttag enc_checks dec_check types tag_types ~simple =
+  let open Or_error.Monad_infix in
+  let f acc types =
+    match acc with
+    | Ok () -> oae tenc tdec ttag types enc_checks [dec_check] ~simple
+    | Error _ as e -> e
+  in
+  (* Lines 03--11 *)
+  List.fold ~init:(Ok ()) types ~f >>= fun () ->
+  (* TODO: check all counters are different *)
+  let f acc types =
+    match acc with
+    | Ok () -> check ttag types false ttag.checks ~simple
+    | Error _ as e -> e
+  in
+  (* Lines 12--16 *)
+  List.fold ~init:(Ok ()) tag_types ~f >>= fun () ->
+  let f acc check =
+    match acc with
+    | Ok () ->
+      let f count types = count + simpleton tenc types check ~simple in
+      let count = List.fold ~init:0 types ~f in
+      if count <> 1 then Ok ()
+      else Or_error.error_string "Graph not misuse resistant: simpleton failed"
+    | Error _ as e -> e
+  in
+  (* Lines 17--18 *)
+  List.fold ~init:(Ok ()) enc_checks ~f >>= fun () ->
+  (* Line 19 *)
+  let f count types = count + simpleton tdec types dec_check false in
+  let count = List.fold ~init:0 types ~f in
+  if count = 1 then Ok ()
+  else Or_error.error_string "Graph not misuse resistant: simpleton failed"
+
 let is_misuse_resistant tenc tdec ttag ~simple =
   let open Or_error.Monad_infix in
-  let f enc_checks dec_check types tag_types =
-    let f acc types =
-      match acc with
-      | Ok () -> oae tenc tdec ttag types enc_checks [dec_check] ~simple
-      | Error _ as e -> e
-    in
-    List.fold ~init:(Ok ()) types ~f >>= fun () ->
-    let f acc types =
-      match acc with
-      | Ok () -> check ttag types false ttag.checks ~simple
-      | Error _ as e -> e
-    in
-    List.fold ~init:(Ok ()) tag_types ~f >>= fun () ->
-    let f acc check =
-      match acc with
-      | Ok () ->
-        let f count types = count + simpleton tenc types check ~simple in
-        let count = List.fold ~init:0 types ~f in
-        if count <> 1 then Ok ()
-        else Or_error.error_string "Graph not misuse resistant: simpleton failed"
-      | Error _ as e -> e
-    in
-    List.fold ~init:(Ok ()) enc_checks ~f >>= fun () ->
-    let f count types = count + simpleton tdec types dec_check false in
-    let count = List.fold ~init:0 types ~f in
-    if count = 1 then Ok ()
-    else Or_error.error_string "Graph not misuse resistant: simpleton failed"
-  in
   Lgr.info "Checking misuse resistance of scheme";
   let out1 = find_vertex_by_inst tenc.g Out1 in
   let out2 = find_vertex_by_inst tenc.g Out2 in
   let fin1 = find_vertex_by_inst tenc.g Fin1 in
   let dec_check = find_vertex_by_inst tdec.g Out1 in
-  if simple then
-    let enc_checks = [out1; out2; fin1] in
-    let types = [
+  let enc_checks = [out1; out2; fin1] in
+  let types = if simple then [
       [| Zero; Zero; One |];
       [| Zero; One; Zero |];
       [| Zero; One; One |];
@@ -583,15 +591,7 @@ let is_misuse_resistant tenc tdec ttag ~simple =
       [| Rand; Zero; One |];
       [| Rand; One; Zero |];
       [| Rand; One; One |];
-    ] in
-    let tag_types = [
-      [| Rand |];
-    ] in
-    f enc_checks dec_check types tag_types
-  else
-    let fin2 = find_vertex_by_inst tenc.g Fin2 in
-    let enc_checks = [out1; out2; fin1; fin2] in
-    let types = [
+    ] else [
       [| Zero; Zero; Zero; One |];
       [| Zero; Zero; One; Zero |];
       [| Zero; Zero; One; One |];
@@ -603,9 +603,14 @@ let is_misuse_resistant tenc tdec ttag ~simple =
       [| Rand; One; Zero; One |];
       [| Rand; One; One; Zero |];
       [| Rand; One; One; One |]
-    ] in
-    let tag_types = [
+    ]
+  in
+  let tag_types = if simple then [
+      [| Rand |];
+      [| Bot |]
+    ] else [
       [| Rand; Zero |];
-      [| Rand; One |]
+      [| Rand; One |];
+      [| Bot; Bot |]
     ] in
-    f enc_checks dec_check types tag_types
+  oae tenc tdec ttag enc_checks dec_check types tag_types ~simple
