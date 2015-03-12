@@ -143,8 +143,8 @@ let run_check mode decode tag check display eval file save misuse simple debug (
           count + 1
         | Error err ->
           eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err);
-          (* count *)
-          assert false
+          count
+          (* assert false *)
       in
       let secure = List.fold ~init:0 blocks ~f in
       printf "Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
