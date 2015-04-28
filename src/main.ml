@@ -79,9 +79,12 @@ let run_check mode decode tag check display eval file save misuse simple debug (
       Or_error.error_string "-misuse must be used in conjunction with -check"
   in
   let feval mode =
-    printf "Encode: %s\n%!" (AeGraph.eval mode.encode ~simple);
-    printf "Decode: %s\n%!" (AeGraph.eval mode.decode ~simple);
-    printf "Tag:    %s\n%!" (AeGraph.eval mode.tag ~simple);
+    let msg1, msg2 = AeGraph.msg1, AeGraph.msg2 in
+    let eval mode =
+      AeGraph.eval mode ~simple ~msg1 ~msg2 |> String.concat ~sep:" " in
+    printf "Encode: %s\n%!" (eval mode.encode);
+    printf "Decode: %s\n%!" (eval mode.decode);
+    printf "Tag:    %s\n%!" (eval mode.tag);
     Ok ()
   in
   let fdisplay mode save =
@@ -125,7 +128,7 @@ let run_check mode decode tag check display eval file save misuse simple debug (
     let total, blocks = In_channel.with_file file ~f in
     let blocks = AeGeneration.remove_dups blocks ~simple in
     let unique = List.length blocks in
-    if check then
+    if check || display || eval then
       let minsize = ref Int.max_value in
       let maxsize = ref 0 in
       let found = ref [] in

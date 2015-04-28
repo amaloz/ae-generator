@@ -186,7 +186,10 @@ let display ?(save=None) t t' t'' =
 
 let cipher = new Cryptokit.Block.aes_encrypt "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
 
-let eval t ~simple =
+let msg1 = "12345678123456781234567812345678"
+let msg2 = "87654321876543218765432187654321"
+
+let eval t ~simple ~msg1 ~msg2 =
   let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
   let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s
                    |> String.uppercase in
@@ -194,24 +197,22 @@ let eval t ~simple =
     | 0 -> '0' | 1 -> '1' | 2 -> '2' | 3 -> '3' | 4 -> '4' | 5 -> '5'
     | 6 -> '6' | 7 -> '7' | 8 -> '8' | 9 -> '9' | 10 -> 'A' | 11 -> 'B'
     | 12 -> 'C' | 13 -> 'D' | 14 -> 'E' | 15 -> 'F'
-    | _ -> failwith "Fatal: invalid integer"
-  in
+    | _ -> failwith "Fatal: invalid integer" in
   let ord = function
     | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5
     | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9 | 'A' -> 10 | 'B' -> 11
     | 'C' -> 12 | 'D' -> 13 | 'E' -> 14 | 'F' -> 15
-    | _ -> failwith "Fatal: invalid character"
-  in
+    | _ -> failwith "Fatal: invalid character" in
   let xor s s' =
     let xor c c' = chr ((ord c) lxor (ord c')) in
-    String.mapi s (fun i c -> xor c s'.[i])
-  in
+    String.mapi s (fun i c -> xor c s'.[i]) in
   let rec f v =
     let inst, _ = G.V.label v in
     match inst with
-    | Msg1 -> "12345678123456781234567812345678"
-    | Msg2 -> "87654321876543218765432187654321"
-    | Ini1 | Ini2 -> "00000000000000000000000000000000"
+    | Msg1 -> msg1
+    | Msg2 -> msg2
+    | Ini1 -> "11111111222222223333333344444444"
+    | Ini2 -> "44444444333333332222222211111111"
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
       let v = G.pred t.g v |> List.hd_exn in
       f v
@@ -238,9 +239,9 @@ let eval t ~simple =
              find_vertex_by_inst t.g Out2;
              find_vertex_by_inst t.g Fin1] in
     let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
-    List.map l ~f |> String.concat ~sep:" "
+    List.map l ~f (* |> String.concat ~sep:" " *)
   | Tag ->
-    find_vertex_by_inst t.g Out1 |> f
+    find_vertex_by_inst t.g Out1 |> f |> (fun x -> [x])
 
 exception Unencryptable of string
 

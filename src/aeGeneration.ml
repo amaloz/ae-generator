@@ -76,18 +76,34 @@ let is_pruneable op block =
   | [] -> false
 
 let remove_dups blocks ~simple =
+  let msg1, msg2 = AeGraph.msg1, AeGraph.msg2 in
+  let swap = function
+    | a :: b :: xs -> b :: a :: xs
+    | _ -> assert false in
   let table = String.Table.create () ~size:1024 in
   let f block =
     let decode = AeGraph.create block Decode |> ok_exn in
     let encode = AeGraph.derive_encode_graph decode |> ok_exn in
-    let r = AeGraph.eval ~simple decode in
-    let r' = AeGraph.eval ~simple encode in
-    let r = String.concat ~sep:" " [r; r'] in
+    let r = AeGraph.eval encode ~simple ~msg1 ~msg2 in
+    let r' = swap r in
+    let s = AeGraph.eval encode ~simple ~msg1:msg2 ~msg2:msg1 in
+    let s' = swap s in
     Lgr.info "Decode: %s" (string_of_op_list block);
-    Lgr.info "Result: %s" r;
-    match Hashtbl.add table ~key:r ~data:r with
-    | `Duplicate -> false
-    | `Ok -> true
+    let tmp = String.Table.create () ~size:1024 in
+    let add l =
+      let s = String.concat ~sep:" " l in
+      Lgr.info "%s" s;
+      ignore (Hashtbl.add tmp ~key:s ~data:s) in
+    add r; add r'; add s; add s';
+    let b = Hashtbl.fold tmp ~init:true ~f:(fun ~key ~data c ->
+        if c then
+          match Hashtbl.add table ~key ~data with
+          | `Duplicate -> false
+          | `Ok -> true
+        else c
+      ) in
+    Lgr.info "Duplicate? %s" (if b then "No" else "Yes");
+    b
   in
   List.filter blocks ~f
 
