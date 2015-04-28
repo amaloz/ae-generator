@@ -1,8 +1,5 @@
 S src
 B _build/src
-PKG async
-PKG async_parallel
-PKG rpc_parallel
 PKG core
 PKG cryptokit
 PKG dolog
