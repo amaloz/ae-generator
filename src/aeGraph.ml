@@ -417,7 +417,8 @@ let map t types rand ~simple =
       || (p1map.typ = Zero && p2map.typ = One)
       || (p1map.typ = One && p2map.typ = Zero) then
         let xor_types = function
-        | Zero, Zero | One, One -> Zero
+        | One, One -> Bot
+        | Zero, Zero -> Zero
         | Zero, One | One, Zero -> One
         | _ , _ -> assert false
         in
