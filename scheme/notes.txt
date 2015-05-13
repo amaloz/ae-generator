@@ -1,0 +1,9 @@
+An implementation of one of the synthesized AE schemes, based on the optimized
+OCB code of Ted Krovetz (http://web.cs.ucdavis.edu/~rogaway/ocb/news/).  The
+scheme has a (simplified) Decode algorithm of:
+
+       MSG1 TBC DUP MSG2 TBC XOR DUP INI1 XOR FIN1 OUT2 OUT1
+
+To run timing experiments of this scheme, use NEW_SCHEME in the call to run() in
+the main() function of timing_x96.c; to run timing experiments of OCB, use
+OCB_SCHEME in the call to run().
