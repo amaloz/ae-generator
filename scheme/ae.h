@@ -104,15 +104,24 @@ int ae_encrypt(ae_ctx     *ctx,
                void       *ct,
                void       *tag,
                int         final);
-int new_ae_encrypt(ae_ctx     *ctx,
-                   const void *nonce,
-                   const void *pt,
-                   int         pt_len,
-                   const void *ad,
-                   int         ad_len,
-                   void       *ct,
-                   void       *tag,
-                   int         final);
+int new_1_ae_encrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *pt,
+                     int         pt_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *ct,
+                     void       *tag,
+                     int         final);
+int new_2_ae_encrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *pt,
+                     int         pt_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *ct,
+                     void       *tag,
+                     int         final);
 /* --------------------------------------------------------------------------
  *
  * Encrypt plaintext; provide for authentication of ciphertext/associated data.

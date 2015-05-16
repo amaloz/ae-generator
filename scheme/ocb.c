@@ -594,9 +594,9 @@ struct _ae_ctx {
     uint32_t blocks_processed;
     AES_KEY decrypt_key;
     AES_KEY encrypt_key;
-    #if (OCB_TAG_LEN == 0)
+#if (OCB_TAG_LEN == 0)
     unsigned tag_len;
-    #endif
+#endif
 };
 
 /* ----------------------------------------------------------------------- */
@@ -916,38 +916,38 @@ int ae_encrypt(ae_ctx     *ctx,
 			oa[2] = xor_block(oa[1], ctx->L[0]);
 			ta[2] = xor_block(oa[2], ptp[2]);
 			checksum = xor_block(checksum, ptp[2]);
-			#if BPI == 4
-				oa[3] = xor_block(oa[2], getL(ctx, ntz(block_num)));
-				ta[3] = xor_block(oa[3], ptp[3]);
-				checksum = xor_block(checksum, ptp[3]);
-			#elif BPI == 8
-				oa[3] = xor_block(oa[2], ctx->L[2]);
-				ta[3] = xor_block(oa[3], ptp[3]);
-				checksum = xor_block(checksum, ptp[3]);
-				oa[4] = xor_block(oa[1], ctx->L[2]);
-				ta[4] = xor_block(oa[4], ptp[4]);
-				checksum = xor_block(checksum, ptp[4]);
-				oa[5] = xor_block(oa[0], ctx->L[2]);
-				ta[5] = xor_block(oa[5], ptp[5]);
-				checksum = xor_block(checksum, ptp[5]);
-				oa[6] = xor_block(oa[7], ctx->L[2]);
-				ta[6] = xor_block(oa[6], ptp[6]);
-				checksum = xor_block(checksum, ptp[6]);
-				oa[7] = xor_block(oa[6], getL(ctx, ntz(block_num)));
-				ta[7] = xor_block(oa[7], ptp[7]);
-				checksum = xor_block(checksum, ptp[7]);
-			#endif
+#if BPI == 4
+            oa[3] = xor_block(oa[2], getL(ctx, ntz(block_num)));
+            ta[3] = xor_block(oa[3], ptp[3]);
+            checksum = xor_block(checksum, ptp[3]);
+#elif BPI == 8
+            oa[3] = xor_block(oa[2], ctx->L[2]);
+            ta[3] = xor_block(oa[3], ptp[3]);
+            checksum = xor_block(checksum, ptp[3]);
+            oa[4] = xor_block(oa[1], ctx->L[2]);
+            ta[4] = xor_block(oa[4], ptp[4]);
+            checksum = xor_block(checksum, ptp[4]);
+            oa[5] = xor_block(oa[0], ctx->L[2]);
+            ta[5] = xor_block(oa[5], ptp[5]);
+            checksum = xor_block(checksum, ptp[5]);
+            oa[6] = xor_block(oa[7], ctx->L[2]);
+            ta[6] = xor_block(oa[6], ptp[6]);
+            checksum = xor_block(checksum, ptp[6]);
+            oa[7] = xor_block(oa[6], getL(ctx, ntz(block_num)));
+            ta[7] = xor_block(oa[7], ptp[7]);
+            checksum = xor_block(checksum, ptp[7]);
+#endif
 			AES_ecb_encrypt_blks(ta,BPI,&ctx->encrypt_key);
 			ctp[0] = xor_block(ta[0], oa[0]);
 			ctp[1] = xor_block(ta[1], oa[1]);
 			ctp[2] = xor_block(ta[2], oa[2]);
 			ctp[3] = xor_block(ta[3], oa[3]);
-			#if (BPI == 8)
+#if (BPI == 8)
 			ctp[4] = xor_block(ta[4], oa[4]);
 			ctp[5] = xor_block(ta[5], oa[5]);
 			ctp[6] = xor_block(ta[6], oa[6]);
 			ctp[7] = xor_block(ta[7], oa[7]);
-			#endif
+#endif
 			ptp += BPI;
 			ctp += BPI;
 		} while (--i);
@@ -1052,15 +1052,193 @@ int ae_encrypt(ae_ctx     *ctx,
     return (int) pt_len;
 }
 
-int new_ae_encrypt(ae_ctx     *ctx,
-                   const void *nonce,
-                   const void *pt,
-                   int         pt_len,
-                   const void *ad,
-                   int         ad_len,
-                   void       *ct,
-                   void       *tag,
-                   int         final)
+int new_1_ae_encrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *pt,
+                     int         pt_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *ct,
+                     void       *tag,
+                     int         final)
+{
+	union { uint32_t u32[4]; uint8_t u8[16]; block bl; } tmp;
+    block offset, checksum;
+    unsigned i, k;
+    block       * ctp = (block *)ct;
+    const block * ptp = (block *)pt;
+
+    /* Non-null nonce means start of new message, init per-message values */
+    if (nonce) {
+        ctx->offset = gen_offset_from_nonce(ctx, nonce);
+        ctx->ad_offset = ctx->checksum = zero_block();
+        ctx->ad_blocks_processed = ctx->blocks_processed = 0;
+        if (ad_len >= 0)
+        	ctx->ad_checksum = zero_block();
+    }
+
+	/* Process associated data */
+	if (ad_len > 0)
+		process_ad(ctx, ad, ad_len, final);
+
+	/* Encrypt plaintext data BPI blocks at a time */
+    offset = ctx->offset;
+    checksum  = ctx->checksum;
+    assert(pt_len % 32 == 0);
+    i = pt_len/(BPI*16);
+    if (i) {
+    	block oa[BPI];
+    	unsigned block_num = ctx->blocks_processed;
+    	oa[BPI-1] = offset;
+		do {
+			block ta[BPI];
+			block_num += BPI;
+            oa[0] = xor_block(oa[BPI-1], ctx->L[0]);
+            ta[0] = xor_block(checksum, ptp[0]);
+            ta[0] = xor_block(oa[0], ta[0]);
+            checksum = ptp[0];
+			oa[1] = xor_block(oa[0], ctx->L[1]);
+			ta[1] = xor_block(checksum, ptp[1]);
+            ta[1] = xor_block(oa[1], ta[1]);
+            checksum = ptp[1];
+			oa[2] = xor_block(oa[1], ctx->L[0]);
+			ta[2] = xor_block(checksum, ptp[2]);
+            ta[2] = xor_block(oa[2], ta[2]);
+            checksum = ptp[1];
+#if BPI == 4
+            oa[3] = xor_block(oa[2], getL(ctx, ntz(block_num)));
+			ta[3] = xor_block(checksum, ptp[3]);
+            ta[3] = xor_block(oa[3], ta[3]);
+            checksum = ptp[3];
+#elif BPI == 8
+            oa[3] = xor_block(oa[2], ctx->L[2]);
+			ta[3] = xor_block(checksum, ptp[3]);
+            ta[3] = xor_block(oa[3], ta[3]);
+            checksum = ptp[3];
+            oa[4] = xor_block(oa[3], ctx->L[2]);
+			ta[4] = xor_block(checksum, ptp[4]);
+            ta[4] = xor_block(oa[4], ta[4]);
+            checksum = ptp[4];
+            oa[5] = xor_block(oa[4], ctx->L[2]);
+			ta[5] = xor_block(checksum, ptp[5]);
+            ta[5] = xor_block(oa[5], ta[5]);
+            checksum = ptp[5];
+            oa[6] = xor_block(oa[5], ctx->L[2]);
+			ta[6] = xor_block(checksum, ptp[6]);
+            ta[6] = xor_block(oa[6], ta[6]);
+            checksum = ptp[6];
+            oa[7] = xor_block(oa[6], getL(ctx, ntz(block_num)));
+			ta[7] = xor_block(checksum, ptp[7]);
+            ta[7] = xor_block(oa[7], ta[7]);
+            checksum = ptp[7];
+#endif
+			AES_ecb_encrypt_blks(ta,BPI,&ctx->encrypt_key);
+			ctp[0] = xor_block(ta[0], oa[0]);
+			ctp[1] = xor_block(ta[1], oa[1]);
+			ctp[2] = xor_block(ta[2], oa[2]);
+			ctp[3] = xor_block(ta[3], oa[3]);
+#if (BPI == 8)
+			ctp[4] = xor_block(ta[4], oa[4]);
+			ctp[5] = xor_block(ta[5], oa[5]);
+			ctp[6] = xor_block(ta[6], oa[6]);
+			ctp[7] = xor_block(ta[7], oa[7]);
+#endif
+			ptp += BPI;
+			ctp += BPI;
+		} while (--i);
+    	ctx->offset = offset = oa[BPI-1];
+	    ctx->blocks_processed = block_num;
+		ctx->checksum = checksum;
+    }
+
+    if (final) {
+		block ta[BPI+1], oa[BPI];
+
+        /* Process remaining plaintext and compute its tag contribution    */
+        unsigned remaining = ((unsigned)pt_len) % (BPI*16);
+        k = 0;                      /* How many blocks in ta[] need ECBing */
+        if (remaining) {
+            assert(remaining % 32 == 0);
+#if (BPI == 8)
+			if (remaining >= 64) {
+                oa[0] = xor_block(offset, ctx->L[0]);
+                ta[0] = xor_block(checksum, ptp[0]);
+                ta[0] = xor_block(oa[0], ta[0]);
+                checksum = ptp[0];
+                oa[1] = xor_block(oa[0], ctx->L[1]);
+                ta[1] = xor_block(checksum, ptp[1]);
+                ta[1] = xor_block(oa[1], ta[1]);
+                checksum = ptp[1];
+                oa[2] = xor_block(oa[1], ctx->L[0]);
+                ta[2] = xor_block(checksum, ptp[2]);
+                ta[2] = xor_block(oa[2], ta[2]);
+                checksum = ptp[1];
+				remaining -= 64;
+				k = 4;
+			}
+#endif
+			if (remaining >= 32) {
+                oa[k] = xor_block(offset, ctx->L[0]);
+                ta[k] = xor_block(checksum, ptp[k]);
+                ta[k] = xor_block(oa[k], ta[k]);
+                checksum = ptp[k];
+                offset = oa[k+1] = xor_block(oa[k], ctx->L[1]);
+                ta[k+1] = xor_block(checksum, ptp[k+1]);
+                ta[k+1] = xor_block(offset, ta[k+1]);
+                checksum = ptp[k];
+				remaining -= 32;
+				k+=2;
+			}
+		}
+        offset = xor_block(offset, ctx->Ldollar);      /* Part of tag gen */
+        ta[k] = xor_block(offset, checksum);           /* Part of tag gen */
+		AES_ecb_encrypt_blks(ta,k+1,&ctx->encrypt_key);
+		offset = xor_block(ta[k], ctx->ad_checksum);   /* Part of tag gen */
+        assert(remaining == 0);
+		switch (k) {
+#if (BPI == 8)
+			case 7: ctp[6] = xor_block(ta[6], oa[6]);
+			case 6: ctp[5] = xor_block(ta[5], oa[5]);
+			case 5: ctp[4] = xor_block(ta[4], oa[4]);
+			case 4: ctp[3] = xor_block(ta[3], oa[3]);
+#endif
+			case 3: ctp[2] = xor_block(ta[2], oa[2]);
+			case 2: ctp[1] = xor_block(ta[1], oa[1]);
+			case 1: ctp[0] = xor_block(ta[0], oa[0]);
+		}
+
+        /* Tag is placed at the correct location
+         */
+        if (tag) {
+			#if (OCB_TAG_LEN == 16)
+            	*(block *)tag = offset;
+			#elif (OCB_TAG_LEN > 0)
+	            memcpy((char *)tag, &offset, OCB_TAG_LEN);
+			#else
+	            memcpy((char *)tag, &offset, ctx->tag_len);
+	        #endif
+        } else {
+			#if (OCB_TAG_LEN > 0)
+	            memcpy((char *)ct + pt_len, &offset, OCB_TAG_LEN);
+            	pt_len += OCB_TAG_LEN;
+			#else
+	            memcpy((char *)ct + pt_len, &offset, ctx->tag_len);
+            	pt_len += ctx->tag_len;
+	        #endif
+        }
+    }
+    return (int) pt_len;
+}
+
+int new_2_ae_encrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *pt,
+                     int         pt_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *ct,
+                     void       *tag,
+                     int         final)
 {
 	union { uint32_t u32[4]; uint8_t u8[16]; block bl; } tmp;
     block offset, checksum;
@@ -1461,17 +1639,205 @@ int ae_decrypt(ae_ctx     *ctx,
 		}
     }
     return ct_len;
+}
+
+int new_1_ae_decrypt(ae_ctx     *ctx,
+                    const void *nonce,
+                    const void *ct,
+                    int         ct_len,
+                    const void *ad,
+                    int         ad_len,
+                    void       *pt,
+                    const void *tag,
+                    int         final)
+{
+	union { uint32_t u32[4]; uint8_t u8[16]; block bl; } tmp;
+    block offset, checksum;
+    unsigned i, k;
+    block       *ctp = (block *)ct;
+    block       *ptp = (block *)pt;
+
+    assert(0);                  /* XXX: not implemented yet */
+
+	/* Reduce ct_len tag bundled in ct */
+	if ((final) && (!tag))
+		#if (OCB_TAG_LEN > 0)
+			ct_len -= OCB_TAG_LEN;
+		#else
+			ct_len -= ctx->tag_len;
+		#endif
+
+    /* Non-null nonce means start of new message, init per-message values */
+    if (nonce) {
+        ctx->offset = gen_offset_from_nonce(ctx, nonce);
+        ctx->ad_offset = ctx->checksum   = zero_block();
+        ctx->ad_blocks_processed = ctx->blocks_processed    = 0;
+        if (ad_len >= 0)
+        	ctx->ad_checksum = zero_block();
+    }
+
+	/* Process associated data */
+	if (ad_len > 0)
+		process_ad(ctx, ad, ad_len, final);
+
+	/* Encrypt plaintext data BPI blocks at a time */
+    offset = ctx->offset;
+    checksum  = ctx->checksum;
+    i = ct_len/(BPI*16);
+    if (i) {
+    	block oa[BPI];
+    	unsigned block_num = ctx->blocks_processed;
+    	oa[BPI-1] = offset;
+		do {
+			block ta[BPI];
+			block_num += BPI;
+			oa[0] = xor_block(oa[BPI-1], ctx->L[0]);
+			ta[0] = xor_block(oa[0], ctp[0]);
+			oa[1] = xor_block(oa[0], ctx->L[1]);
+			ta[1] = xor_block(oa[1], ctp[1]);
+			oa[2] = xor_block(oa[1], ctx->L[0]);
+			ta[2] = xor_block(oa[2], ctp[2]);
+#if BPI == 4
+            oa[3] = xor_block(oa[2], getL(ctx, ntz(block_num)));
+            ta[3] = xor_block(oa[3], ctp[3]);
+#elif BPI == 8
+            oa[3] = xor_block(oa[2], ctx->L[2]);
+            ta[3] = xor_block(oa[3], ctp[3]);
+            oa[4] = xor_block(oa[1], ctx->L[2]);
+            ta[4] = xor_block(oa[4], ctp[4]);
+            oa[5] = xor_block(oa[0], ctx->L[2]);
+            ta[5] = xor_block(oa[5], ctp[5]);
+            oa[6] = xor_block(oa[7], ctx->L[2]);
+            ta[6] = xor_block(oa[6], ctp[6]);
+            oa[7] = xor_block(oa[6], getL(ctx, ntz(block_num)));
+            ta[7] = xor_block(oa[7], ctp[7]);
+#endif
+			AES_ecb_decrypt_blks(ta,BPI,&ctx->decrypt_key);
+			ptp[0] = xor_block(ta[0], oa[0]);
+            ptp[0] = xor_block(ptp[0], checksum);
+			checksum = xor_block(checksum, ptp[0]);
+			ptp[1] = xor_block(ta[1], oa[1]);
+            ptp[1] = xor_block(ptp[1], checksum);
+			checksum = xor_block(checksum, ptp[1]);
+			ptp[2] = xor_block(ta[2], oa[2]);
+            ptp[2] = xor_block(ptp[2], checksum);
+			checksum = xor_block(checksum, ptp[2]);
+			ptp[3] = xor_block(ta[3], oa[3]);
+            ptp[3] = xor_block(ptp[3], checksum);
+			checksum = xor_block(checksum, ptp[3]);
+#if (BPI == 8)
+			ptp[4] = xor_block(ta[4], oa[4]);
+            ptp[4] = xor_block(ptp[4], checksum);
+			checksum = xor_block(checksum, ptp[4]);
+			ptp[5] = xor_block(ta[5], oa[5]);
+            ptp[5] = xor_block(ptp[5], checksum);
+			checksum = xor_block(checksum, ptp[5]);
+			ptp[6] = xor_block(ta[6], oa[6]);
+            ptp[6] = xor_block(ptp[6], checksum);
+			checksum = xor_block(checksum, ptp[6]);
+			ptp[7] = xor_block(ta[7], oa[7]);
+            ptp[7] = xor_block(ptp[7], checksum);
+			checksum = xor_block(checksum, ptp[7]);
+#endif
+			ptp += BPI;
+			ctp += BPI;
+		} while (--i);
+    	ctx->offset = offset = oa[BPI-1];
+	    ctx->blocks_processed = block_num;
+		ctx->checksum = checksum;
+    }
+
+    if (final) {
+		block ta[BPI+1], oa[BPI];
+
+        /* Process remaining plaintext and compute its tag contribution    */
+        unsigned remaining = ((unsigned)ct_len) % (BPI*16);
+        k = 0;                      /* How many blocks in ta[] need ECBing */
+        if (remaining) {
+#if (BPI == 8)
+			if (remaining >= 64) {
+				oa[0] = xor_block(offset, ctx->L[0]);
+				ta[0] = xor_block(oa[0], ctp[0]);
+				oa[1] = xor_block(oa[0], ctx->L[1]);
+				ta[1] = xor_block(oa[1], ctp[1]);
+				oa[2] = xor_block(oa[1], ctx->L[0]);
+				ta[2] = xor_block(oa[2], ctp[2]);
+				offset = oa[3] = xor_block(oa[2], ctx->L[2]);
+				ta[3] = xor_block(offset, ctp[3]);
+				remaining -= 64;
+				k = 4;
+			}
+#endif
+			if (remaining >= 32) {
+				oa[k] = xor_block(offset, ctx->L[0]);
+				ta[k] = xor_block(oa[k], ctp[k]);
+				offset = oa[k+1] = xor_block(oa[k], ctx->L[1]);
+				ta[k+1] = xor_block(offset, ctp[k+1]);
+				remaining -= 32;
+				k+=2;
+			}
+			/* if (remaining >= 16) { */
+			/* 	offset = oa[k] = xor_block(offset, ctx->L[0]); */
+			/* 	ta[k] = xor_block(offset, ctp[k]); */
+			/* 	remaining -= 16; */
+			/* 	++k; */
+			/* } */
+			/* if (remaining) { */
+			/* 	block pad; */
+			/* 	offset = xor_block(offset,ctx->Lstar); */
+			/* 	AES_encrypt((unsigned char *)&offset, tmp.u8, &ctx->encrypt_key); */
+			/* 	pad = tmp.bl; */
+			/* 	memcpy(tmp.u8,ctp+k,remaining); */
+			/* 	tmp.bl = xor_block(tmp.bl, pad); */
+			/* 	tmp.u8[remaining] = (unsigned char)0x80u; */
+			/* 	memcpy(ptp+k, tmp.u8, remaining); */
+			/* 	checksum = xor_block(checksum, tmp.bl); */
+			/* } */
+		}
+		AES_ecb_decrypt_blks(ta,k,&ctx->decrypt_key);
+        for (i = 0; i < k; ++i) {
+            ptp[i] = xor_block(ta[i], oa[i]);
+            ptp[i] = xor_block(ptp[i], checksum);
+            checksum = xor_block(checksum, ptp[i]);
+        }
+
+		/* Calculate expected tag */
+        offset = xor_block(offset, ctx->Ldollar);
+        tmp.bl = xor_block(offset, checksum);
+		AES_encrypt(tmp.u8, tmp.u8, &ctx->encrypt_key);
+		tmp.bl = xor_block(tmp.bl, ctx->ad_checksum); /* Full tag */
+
+		/* Compare with proposed tag, change ct_len if invalid */
+		if ((OCB_TAG_LEN == 16) && tag) {
+			if (unequal_blocks(tmp.bl, *(block *)tag))
+				ct_len = AE_INVALID;
+		} else {
+			#if (OCB_TAG_LEN > 0)
+				int len = OCB_TAG_LEN;
+			#else
+				int len = ctx->tag_len;
+			#endif
+			if (tag) {
+				if (constant_time_memcmp(tag,tmp.u8,len) != 0)
+					ct_len = AE_INVALID;
+			} else {
+				if (constant_time_memcmp((char *)ct + ct_len,tmp.u8,len) != 0)
+					ct_len = AE_INVALID;
+			}
+		}
+    }
+    return ct_len;
  }
 
-int new_ae_decrypt(ae_ctx     *ctx,
-                   const void *nonce,
-                   const void *ct,
-                   int         ct_len,
-                   const void *ad,
-                   int         ad_len,
-                   void       *pt,
-                   const void *tag,
-                   int         final)
+int new_2_ae_decrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *ct,
+                     int         ct_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *pt,
+                     const void *tag,
+                     int         final)
 {
 	union { uint32_t u32[4]; uint8_t u8[16]; block bl; } tmp;
     block offset, checksum;
@@ -1802,9 +2168,9 @@ void validate()
         
         nonce[11] = i%128;
 
-        len = new_ae_encrypt(&ctx, nonce, val_buf, i, val_buf,  i, ct, tag, AE_FINALIZE);
-        len = new_ae_encrypt(&ctx, nonce, val_buf, i, val_buf, -1, ct, tag, AE_FINALIZE);
-        len = new_ae_decrypt(&ctx, nonce, ct, len, val_buf, -1, pt, tag, AE_FINALIZE);
+        len = new_1_ae_encrypt(&ctx, nonce, val_buf, i, val_buf,  i, ct, tag, AE_FINALIZE);
+        len = new_1_ae_encrypt(&ctx, nonce, val_buf, i, val_buf, -1, ct, tag, AE_FINALIZE);
+        len = new_1_ae_decrypt(&ctx, nonce, ct, len, val_buf, -1, pt, tag, AE_FINALIZE);
         if (len == -1) {
             printf("Authentication error: %d\n", i);
             return;
