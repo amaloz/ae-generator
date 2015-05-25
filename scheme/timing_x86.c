@@ -116,6 +116,21 @@ int run(int argc, char **argv, int scheme)
 		if (argc == 3)
 			fp = fopen(argv[2], "w");
 	}
+
+    switch (scheme) {
+    case OCB_SCHEME:
+        outp += sprintf(outp, "OCB ");
+        break;
+    case NEW_1_SCHEME:
+        outp += sprintf(outp, "NEW 1 ");
+        break;
+    case NEW_2_SCHEME:
+        outp += sprintf(outp, "NEW 2 ");
+        break;
+    default:
+        return 0;
+    }
+
 	
     outp += sprintf(outp, "%s ", infoString);
     #if __INTEL_COMPILER
@@ -221,5 +236,5 @@ int run(int argc, char **argv, int scheme)
 }
 
 int main(int argc, char **argv) {
-    run(argc, argv, NEW_1_SCHEME);
+    run(argc, argv, OCB_SCHEME);
 }
