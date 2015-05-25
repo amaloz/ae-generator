@@ -44,13 +44,15 @@ let spec_check =
     ~doc:" Evaluate the given mode"
   +> flag "-file" (optional file)
     ~doc:"FILE Run against modes in FILE"
+  +> flag "-cost" (optional int)
+    ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
     ~doc:"FILE Save mode to FILE instead of displaying"
   (* +> flag "-misuse" no_arg *)
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file save simple debug () =
+let run_check mode decode tag check display eval file cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -117,7 +119,16 @@ let run_check mode decode tag check display eval file save simple debug () =
         let mode = AeModes.create decode default_tag in
         let f mode =
           AeInst.from_string_block (AeModes.decode_string mode) >>= fun block ->
-          AeInst.validate block Decode ~simple                  >>| fun () ->
+          AeInst.validate block Decode ~simple                  >>= fun () ->
+          begin
+            match cost with
+            | None -> Ok ()
+            | Some cost ->
+              let cost' = AeInst.count_inst block Tbc in
+              if cost' > cost
+              then Or_error.error_string (sprintf "Cost too large (%d > %d)" cost' cost)
+              else Ok ()
+          end >>| fun () ->
           block
         in
         match f mode with

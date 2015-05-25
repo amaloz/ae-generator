@@ -73,11 +73,18 @@ let block_length l =
     | Inst _ -> acc + 1
     | StackInst _ -> acc
   in
-  List.fold_left l ~init:0 ~f:f
+  List.fold_left l ~init:0 ~f
 
 (* counts the number of modes of size 'size' in list 'found' *)
 let count found size =
   List.count found (fun l -> block_length l = size)
+
+let count_inst l inst =
+  let f acc = function
+    | Inst i -> if i = inst then acc + 1 else acc
+    | StackInst _ -> acc
+  in
+  List.fold_left l ~init:0 ~f
 
 let print_modes found maxsize =
   for i = 1 to maxsize do
