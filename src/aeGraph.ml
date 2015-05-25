@@ -513,106 +513,106 @@ let is_secure t ~simple =
     in
     is_secure_tag t randtypes types ~simple
 
-let oae tenc tdec ttag types enc_checks dec_checks ~simple =
-  let open Or_error.Monad_infix in
-  check tdec types false dec_checks ~simple >>= fun () ->
-  check tenc types false enc_checks ~simple >>= fun () ->
-  let check_ctrs checks =
-    let ctr v = let _, map = G.V.label v in !map.ctr in
-    let cmp = 
-    if simple then
-      let a, b, c = checks.(0), checks.(1), checks.(2) in
-      ctr a = ctr b || ctr b = ctr c || ctr c = ctr a
-    else
-      let a, b, c, d = checks.(0), checks.(1), checks.(2), checks.(3) in
-      ctr a = ctr b || ctr b = ctr c || ctr c = ctr d || ctr d = ctr a
-    in
-    if cmp then Or_error.error_string "Graph not misuse resistant: counters are equal"
-    else Ok ()
-  in
-  check_ctrs (Array.of_list enc_checks)
+(* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
+(*   let open Or_error.Monad_infix in *)
+(*   check tdec types false dec_checks ~simple >>= fun () -> *)
+(*   check tenc types false enc_checks ~simple >>= fun () -> *)
+(*   let check_ctrs checks = *)
+(*     let ctr v = let _, map = G.V.label v in !map.ctr in *)
+(*     let cmp =  *)
+(*     if simple then *)
+(*       let a, b, c = checks.(0), checks.(1), checks.(2) in *)
+(*       ctr a = ctr b || ctr b = ctr c || ctr c = ctr a *)
+(*     else *)
+(*       let a, b, c, d = checks.(0), checks.(1), checks.(2), checks.(3) in *)
+(*       ctr a = ctr b || ctr b = ctr c || ctr c = ctr d || ctr d = ctr a *)
+(*     in *)
+(*     if cmp then Or_error.error_string "Graph not misuse resistant: counters are equal" *)
+(*     else Ok () *)
+(*   in *)
+(*   check_ctrs (Array.of_list enc_checks) *)
 
-let simpleton t types check ~simple =
-  map t types false ~simple;
-  let tbcs = find_all_vertices_by_inst t.g Tbc in
-  let ctr = let _, map = G.V.label check in !map.ctr in
-  let f count v =
-    let _, map = G.V.label v in
-    if !map.typ = Rand && !map.ctr = ctr then count + 1
-    else count
-  in
-  List.fold ~init:0  tbcs ~f
+(* let simpleton t types check ~simple = *)
+(*   map t types false ~simple; *)
+(*   let tbcs = find_all_vertices_by_inst t.g Tbc in *)
+(*   let ctr = let _, map = G.V.label check in !map.ctr in *)
+(*   let f count v = *)
+(*     let _, map = G.V.label v in *)
+(*     if !map.typ = Rand && !map.ctr = ctr then count + 1 *)
+(*     else count *)
+(*   in *)
+(*   List.fold ~init:0  tbcs ~f *)
 
-let oae tenc tdec ttag enc_checks dec_check types tag_types ~simple =
-  let open Or_error.Monad_infix in
-  let f acc types =
-    match acc with
-    | Ok () -> oae tenc tdec ttag types enc_checks [dec_check] ~simple
-    | Error _ as e -> e
-  in
-  (* Lines 03--11 *)
-  List.fold ~init:(Ok ()) types ~f >>= fun () ->
-  (* TODO: check all counters are different *)
-  let f acc types =
-    match acc with
-    | Ok () -> check ttag types false ttag.checks ~simple
-    | Error _ as e -> e
-  in
-  (* Lines 12--16 *)
-  List.fold ~init:(Ok ()) tag_types ~f >>= fun () ->
-  let f acc check =
-    match acc with
-    | Ok () ->
-      let f count types = count + simpleton tenc types check ~simple in
-      let count = List.fold ~init:0 types ~f in
-      if count <> 1 then Ok ()
-      else Or_error.error_string "Graph not misuse resistant: simpleton failed"
-    | Error _ as e -> e
-  in
-  (* Lines 17--18 *)
-  List.fold ~init:(Ok ()) enc_checks ~f >>= fun () ->
-  (* Line 19 *)
-  let f count types = count + simpleton tdec types dec_check false in
-  let count = List.fold ~init:0 types ~f in
-  if count = 1 then Ok ()
-  else Or_error.error_string "Graph not misuse resistant: simpleton failed"
+(* let oae tenc tdec ttag enc_checks dec_check types tag_types ~simple = *)
+(*   let open Or_error.Monad_infix in *)
+(*   let f acc types = *)
+(*     match acc with *)
+(*     | Ok () -> oae tenc tdec ttag types enc_checks [dec_check] ~simple *)
+(*     | Error _ as e -> e *)
+(*   in *)
+(*   (\* Lines 03--11 *\) *)
+(*   List.fold ~init:(Ok ()) types ~f >>= fun () -> *)
+(*   (\* TODO: check all counters are different *\) *)
+(*   let f acc types = *)
+(*     match acc with *)
+(*     | Ok () -> check ttag types false ttag.checks ~simple *)
+(*     | Error _ as e -> e *)
+(*   in *)
+(*   (\* Lines 12--16 *\) *)
+(*   List.fold ~init:(Ok ()) tag_types ~f >>= fun () -> *)
+(*   let f acc check = *)
+(*     match acc with *)
+(*     | Ok () -> *)
+(*       let f count types = count + simpleton tenc types check ~simple in *)
+(*       let count = List.fold ~init:0 types ~f in *)
+(*       if count <> 1 then Ok () *)
+(*       else Or_error.error_string "Graph not misuse resistant: simpleton failed" *)
+(*     | Error _ as e -> e *)
+(*   in *)
+(*   (\* Lines 17--18 *\) *)
+(*   List.fold ~init:(Ok ()) enc_checks ~f >>= fun () -> *)
+(*   (\* Line 19 *\) *)
+(*   let f count types = count + simpleton tdec types dec_check false in *)
+(*   let count = List.fold ~init:0 types ~f in *)
+(*   if count = 1 then Ok () *)
+(*   else Or_error.error_string "Graph not misuse resistant: simpleton failed" *)
 
-let is_misuse_resistant tenc tdec ttag ~simple =
-  let open Or_error.Monad_infix in
-  Lgr.info "Checking misuse resistance of scheme";
-  let out1 = find_vertex_by_inst tenc.g Out1 in
-  let out2 = find_vertex_by_inst tenc.g Out2 in
-  let fin1 = find_vertex_by_inst tenc.g Fin1 in
-  let dec_check = find_vertex_by_inst tdec.g Out1 in
-  let enc_checks = [out1; out2; fin1] in
-  let types = if simple then [
-      [| Zero; Zero; One |];
-      [| Zero; One; Zero |];
-      [| Zero; One; One |];
-      [| Rand; Zero; Zero |];
-      [| Rand; Zero; One |];
-      [| Rand; One; Zero |];
-      [| Rand; One; One |];
-    ] else [
-      [| Zero; Zero; Zero; One |];
-      [| Zero; Zero; One; Zero |];
-      [| Zero; Zero; One; One |];
-      [| Rand; Zero; Zero; Zero |];
-      [| Rand; Zero; Zero; One |];
-      [| Rand; Zero; One; Zero |];
-      [| Rand; Zero; One; One |];
-      [| Rand; One; Zero; Zero |];
-      [| Rand; One; Zero; One |];
-      [| Rand; One; One; Zero |];
-      [| Rand; One; One; One |]
-    ]
-  in
-  let tag_types = if simple then [
-      [| Rand |];
-      [| Bot |]
-    ] else [
-      [| Rand; Zero |];
-      [| Rand; One |];
-      [| Bot; Bot |]
-    ] in
-  oae tenc tdec ttag enc_checks dec_check types tag_types ~simple
+(* let is_misuse_resistant tenc tdec ttag ~simple = *)
+(*   let open Or_error.Monad_infix in *)
+(*   Lgr.info "Checking misuse resistance of scheme"; *)
+(*   let out1 = find_vertex_by_inst tenc.g Out1 in *)
+(*   let out2 = find_vertex_by_inst tenc.g Out2 in *)
+(*   let fin1 = find_vertex_by_inst tenc.g Fin1 in *)
+(*   let dec_check = find_vertex_by_inst tdec.g Out1 in *)
+(*   let enc_checks = [out1; out2; fin1] in *)
+(*   let types = if simple then [ *)
+(*       [| Zero; Zero; One |]; *)
+(*       [| Zero; One; Zero |]; *)
+(*       [| Zero; One; One |]; *)
+(*       [| Rand; Zero; Zero |]; *)
+(*       [| Rand; Zero; One |]; *)
+(*       [| Rand; One; Zero |]; *)
+(*       [| Rand; One; One |]; *)
+(*     ] else [ *)
+(*       [| Zero; Zero; Zero; One |]; *)
+(*       [| Zero; Zero; One; Zero |]; *)
+(*       [| Zero; Zero; One; One |]; *)
+(*       [| Rand; Zero; Zero; Zero |]; *)
+(*       [| Rand; Zero; Zero; One |]; *)
+(*       [| Rand; Zero; One; Zero |]; *)
+(*       [| Rand; Zero; One; One |]; *)
+(*       [| Rand; One; Zero; Zero |]; *)
+(*       [| Rand; One; Zero; One |]; *)
+(*       [| Rand; One; One; Zero |]; *)
+(*       [| Rand; One; One; One |] *)
+(*     ] *)
+(*   in *)
+(*   let tag_types = if simple then [ *)
+(*       [| Rand |]; *)
+(*       [| Bot |] *)
+(*     ] else [ *)
+(*       [| Rand; Zero |]; *)
+(*       [| Rand; One |]; *)
+(*       [| Bot; Bot |] *)
+(*     ] in *)
+(*   oae tenc tdec ttag enc_checks dec_check types tag_types ~simple *)

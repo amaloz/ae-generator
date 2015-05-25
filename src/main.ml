@@ -46,11 +46,11 @@ let spec_check =
     ~doc:"FILE Run against modes in FILE"
   +> flag "-save" (optional string)
     ~doc:"FILE Save mode to FILE instead of displaying"
-  +> flag "-misuse" no_arg
-    ~doc:" Check if given mode is misuse resistant"
+  (* +> flag "-misuse" no_arg *)
+  (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file save misuse simple debug () =
+let run_check mode decode tag check display eval file save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -72,12 +72,12 @@ let run_check mode decode tag check display eval file save misuse simple debug (
     f mode.decode >>= fun () ->
     f mode.tag
   in
-  let fmisuse mode =
-    if check then
-      AeGraph.is_misuse_resistant mode.encode mode.decode mode.tag ~simple
-    else
-      Or_error.error_string "-misuse must be used in conjunction with -check"
-  in
+  (* let fmisuse mode = *)
+  (*   if check then *)
+  (*     AeGraph.is_misuse_resistant mode.encode mode.decode mode.tag ~simple *)
+  (*   else *)
+  (*     Or_error.error_string "-misuse must be used in conjunction with -check" *)
+  (* in *)
   let feval mode =
     let msg1, msg2 = AeGraph.msg1, AeGraph.msg2 in
     let eval mode =
@@ -105,7 +105,7 @@ let run_check mode decode tag check display eval file save misuse simple debug (
     let mode = { encode = encode; decode = decode; tag = tag } in
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
-    begin if misuse then fmisuse mode else Ok () end        >>= fun () ->
+    (* begin if misuse then fmisuse mode else Ok () end        >>= fun () -> *)
     begin if eval then feval mode else Ok () end
   in
   let read_file file =
