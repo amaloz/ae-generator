@@ -128,8 +128,8 @@ let rec permutations l =
       if k < n-1 then List.rev_append t (aux (k + 1)) else t in
     aux 0
 
-let start_perms = permutations [Inst Ini1; Inst Ini2; Inst Msg1; Inst Msg2]
-let start_perms_simple = permutations [Inst Ini1; Inst Msg1; Inst Msg2]
+let start_perms = permutations [Inst Ini1; Inst Ini2; Inst In1; Inst In2]
+let start_perms_simple = permutations [Inst Ini1; Inst In1; Inst In2]
 
 let term_perms = permutations [Inst Fin1; Inst Fin2; Inst Out1; Inst Out2]
 let term_perms_simple = permutations [Inst Fin1; Inst Out1; Inst Out2]

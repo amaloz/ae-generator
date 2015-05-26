@@ -209,8 +209,8 @@ let eval t ~simple ~msg1 ~msg2 =
   let rec f v =
     let inst, _ = G.V.label v in
     match inst with
-    | Msg1 -> msg1
-    | Msg2 -> msg2
+    | In1 -> msg1
+    | In2 -> msg2
     | Ini1 -> "11111111222222223333333344444444"
     | Ini2 -> "44444444333333332222222211111111"
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
@@ -250,10 +250,10 @@ let derive_encode_graph t =
   Lgr.info "Deriving Encode graph";
   let g = G.create () in
   let map_inst = function
-    | Msg1 -> Out1
-    | Msg2 -> Out2
-    | Out1 -> Msg1
-    | Out2 -> Msg2
+    | In1 -> Out1
+    | In2 -> Out2
+    | Out1 -> In1
+    | Out2 -> In2
     | _ as i -> i
   in
   let find_vertex g mark =
@@ -301,7 +301,7 @@ let derive_encode_graph t =
     let v_new = find_vertex g (G.Mark.get v) in
     let inst, _ = G.V.label v in
     match inst with
-    | Msg1 | Msg2 | Fin1 | Fin2 ->
+    | In1 | In2 | Fin1 | Fin2 ->
       let v' = vs.(0) in
       let v'_new = find_vertex g (G.Mark.get v') in
       if is_marked v'_new then add_edge_and_mark v v'_new v_new acc
@@ -381,7 +381,7 @@ let map t types rand ~simple =
     let l =
       match t.phase with
       | Encode | Decode ->
-        if simple then [| Ini1; Msg1; Msg2 |] else [| Ini1; Ini2; Msg1; Msg2 |]
+        if simple then [| Ini1; In1; In2 |] else [| Ini1; Ini2; In1; In2 |]
       | Tag ->
         if simple then [| Ini1 |] else [| Ini1; Ini2 |]
     in
@@ -390,7 +390,7 @@ let map t types rand ~simple =
   let f v =
     let inst, _ = G.V.label v in
     match inst with
-    | Msg1 | Msg2 | Ini1 | Ini2 -> ()
+    | In1 | In2 | Ini1 | Ini2 -> ()
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
@@ -518,7 +518,7 @@ let is_parallel t strict ~simple =
   let rec f v =
     let inst, _ = G.V.label v in
     match inst with
-    | Msg1 | Msg2 | Ini1 | Ini2 -> assert false
+    | In1 | In2 | Ini1 | Ini2 -> assert false
     | Dup ->
       let s = G.succ t.g v in
       List.iter s ~f

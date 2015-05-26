@@ -6,8 +6,8 @@ type phase =
   | Tag
 
 type inst =
-  | Msg1
-  | Msg2
+  | In1
+  | In2
   | Ini1
   | Ini2
   | Fin1
@@ -27,7 +27,7 @@ type op =
   | StackInst of stackInst
 
 let all_ops = [
-  "MSG1"; "MSG2";
+  "IN1"; "IN2";
   "INI1"; "INI2";
   "FIN1"; "FIN2";
   "OUT1"; "OUT2";
@@ -41,8 +41,8 @@ let string_of_phase = function
   | Tag -> "Tag"
 
 let string_of_inst = function
-  | Msg1 -> "MSG1"
-  | Msg2 -> "MSG2"
+  | In1 -> "IN1"
+  | In2 -> "IN2"
   | Ini1 -> "INI1"
   | Ini2 -> "INI2"
   | Fin1 -> "FIN1"

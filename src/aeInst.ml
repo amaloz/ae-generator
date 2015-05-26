@@ -2,8 +2,8 @@ open AeOps
 open Core.Std
 
 let n_in = function
-  | Inst Msg1 -> 0
-  | Inst Msg2 -> 0
+  | Inst In1 -> 0
+  | Inst In2 -> 0
   | Inst Ini1 -> 0
   | Inst Ini2 -> 0
   | Inst Fin1 -> 1
@@ -17,8 +17,8 @@ let n_in = function
   | StackInst Twoswap -> 3
 
 let n_out = function
-  | Inst Msg1 -> 1
-  | Inst Msg2 -> 1
+  | Inst In1 -> 1
+  | Inst In2 -> 1
   | Inst Ini1 -> 1
   | Inst Ini2 -> 1
   | Inst Fin1 -> 0
@@ -32,8 +32,8 @@ let n_out = function
   | StackInst Twoswap -> 3
 
 let n_diff = function
-  | Inst Msg1 -> 1
-  | Inst Msg2 -> 1
+  | Inst In1 -> 1
+  | Inst In2 -> 1
   | Inst Ini1 -> 1
   | Inst Ini2 -> 1
   | Inst Fin1 -> -1
@@ -48,8 +48,8 @@ let n_diff = function
 
 let from_string s =
   match String.uppercase s with
-  | "MSG1" -> Ok (Inst Msg1)
-  | "MSG2" -> Ok (Inst Msg2)
+  | "IN1" -> Ok (Inst In1)
+  | "IN2" -> Ok (Inst In2)
   | "INI1" -> Ok (Inst Ini1)
   | "INI2" -> Ok (Inst Ini2)
   | "FIN1" -> Ok (Inst Fin1)
@@ -111,8 +111,8 @@ let validate block phase ~simple =
   match phase with
   | Encode | Decode ->
     let l =
-      if simple then [Ini1; Fin1; Msg1; Msg2; Out1; Out2]
-      else [Ini1; Ini2; Fin1; Fin2; Msg1; Msg2; Out1; Out2]
+      if simple then [Ini1; Fin1; In1; In2; Out1; Out2]
+      else [Ini1; Ini2; Fin1; Fin2; In1; In2; Out1; Out2]
     in
     Or_error.combine_errors_unit (List.map l one) >>= fun () ->
     let f acc i = acc - n_in i + n_out i in
@@ -142,8 +142,8 @@ let is_valid block ~simple =
   && List.count block (eq Ini2) = (if simple then 0 else 1)
   && List.count block (eq Fin1) = 1
   && List.count block (eq Fin2) = (if simple then 0 else 1)
-  && List.count block (eq Msg1) = 1
-  && List.count block (eq Msg2) = 1
+  && List.count block (eq In1) = 1
+  && List.count block (eq In2) = 1
   && List.count block (eq Out1) = 1
   && List.count block (eq Out2) = 1
   && List.exists block (eq Tbc)
