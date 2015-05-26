@@ -44,6 +44,10 @@ let spec_check =
     ~doc:" Evaluate the given mode"
   +> flag "-file" (optional file)
     ~doc:"FILE Run against modes in FILE"
+  +> flag "-parallel" no_arg
+    ~doc:" Check if given mode is parallelizable"
+  +> flag "-strict" no_arg
+    ~doc:" Use strict check for parallelizability"
   +> flag "-cost" (optional int)
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
@@ -52,7 +56,7 @@ let spec_check =
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file cost save simple debug () =
+let run_check mode decode tag check display eval file parallel strict cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -62,8 +66,6 @@ let run_check mode decode tag check display eval file cost save simple debug () 
         | Some decode, Some tag -> Ok (AeModes.create decode tag, decode)
         | Some decode, None ->
           let tag = if simple then default_tag_simple else default_tag in
-          (* printf "Warning: No tag algorithm given.  Using default tag algorithm: %s\n%!" *)
-          (*   tag; *)
           Ok (AeModes.create decode tag, decode)
         | None, _ -> Or_error.error_string "Decode algorithm is missing."
       end
@@ -72,7 +74,13 @@ let run_check mode decode tag check display eval file cost save simple debug () 
     let f g = AeGraph.is_secure g ~simple in
     f mode.encode >>= fun () ->
     f mode.decode >>= fun () ->
-    f mode.tag
+    f mode.tag    >>= fun () ->
+    if parallel then
+      if AeGraph.is_parallel mode.encode strict ~simple
+         && AeGraph.is_parallel mode.decode strict ~simple
+      then Ok ()
+      else Or_error.error_string "Not parallelizable"
+    else Ok ()
   in
   (* let fmisuse mode = *)
   (*   if check then *)
@@ -156,9 +164,8 @@ let run_check mode decode tag check display eval file cost save simple debug () 
           found := block :: !found;
           count + 1
         | Error err ->
-          eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err);
+          (* eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err); *)
           count
-          (* assert false *)
       in
       let secure = List.fold ~init:0 blocks ~f in
       printf "Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
@@ -166,7 +173,7 @@ let run_check mode decode tag check display eval file cost save simple debug () 
         List.count blocks (fun block -> List.length block = size)
       in
       for i = !minsize to !maxsize do
-        printf "# modes of size %d = %d\n%!" i (count blocks  i) (* XXX: *)
+        printf "# modes of size %d = %d\n%!" i (count !found i)
       done;
     else
       printf "Unique / Total: %d / %d\n%!" unique total;

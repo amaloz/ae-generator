@@ -239,7 +239,7 @@ let eval t ~simple ~msg1 ~msg2 =
              find_vertex_by_inst t.g Out2;
              find_vertex_by_inst t.g Fin1] in
     let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
-    List.map l ~f (* |> String.concat ~sep:" " *)
+    List.map l ~f
   | Tag ->
     find_vertex_by_inst t.g Out1 |> f |> (fun x -> [x])
 
@@ -512,6 +512,54 @@ let is_secure t ~simple =
       ]
     in
     is_secure_tag t randtypes types ~simple
+
+let is_parallel t strict ~simple =
+  let mark v = G.Mark.set v 1 in
+  let rec f v =
+    let inst, _ = G.V.label v in
+    match inst with
+    | Msg1 | Msg2 | Ini1 | Ini2 -> assert false
+    | Dup ->
+      let s = G.succ t.g v in
+      List.iter s ~f
+    | Xor ->
+      G.succ t.g v |> List.hd_exn |> f
+    | Tbc ->
+      Lgr.debug "Hit TBC node";
+      mark v;
+      G.succ t.g v |> List.hd_exn |> f
+    | Fin1 | Fin2 ->
+      Lgr.debug "Hit FIN node";
+      mark v
+    | Out1 | Out2 -> ()
+  in
+  Lgr.info "Checking parallelizability of %s graph" @@ string_of_phase t.phase;
+  let is_marked inst =
+    let vs = find_all_vertices_by_inst t.g inst in
+    List.exists vs (fun v -> G.Mark.get v = 1)
+  in
+  let itergraph fvs =
+    G.Mark.clear t.g;
+    let vs = fvs () in
+    List.iter vs (fun v -> G.succ t.g v |> List.hd_exn |> f)
+  in
+  let check simple =
+    itergraph (fun () -> find_all_vertices_by_inst t.g Tbc);
+    let check simple =
+      itergraph (fun () ->
+          let v = find_vertex_by_inst t.g Ini1 in
+          if simple then [v] else [v] @ [find_vertex_by_inst t.g Ini2]);
+      not (is_marked Tbc)
+    in
+    if strict && is_marked Tbc then false
+    else if
+      (if simple then is_marked Fin1 else is_marked Fin1 || is_marked Fin2)
+    then check simple
+    else true
+  in
+  match t.phase with
+  | Encode | Decode -> check simple
+  | Tag -> failwith "Tag phase cannot be checked for parallelizability"
 
 (* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
 (*   let open Or_error.Monad_infix in *)
