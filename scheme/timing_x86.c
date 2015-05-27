@@ -75,10 +75,10 @@ extern void validate();
 
 #define OCB_SCHEME 0
 #define NEW_1_SCHEME 1
-#define NEW_2_SCHEME 2
-#define NEW_3_SCHEME 3
+#define NEW_2_SCHEME 0
+#define NEW_3_SCHEME 0
 
-int run(int argc, char **argv, int scheme)
+int main(int argc, char **argv)
 {
 	/* Allocate locals */
 	ALIGN(16) char pt[8*1024] = {0};
@@ -118,20 +118,15 @@ int run(int argc, char **argv, int scheme)
 			fp = fopen(argv[2], "w");
 	}
 
-    switch (scheme) {
-    case OCB_SCHEME:
-        outp += sprintf(outp, "OCB ");
-        break;
-    case NEW_1_SCHEME:
-        outp += sprintf(outp, "NEW 1 ");
-        break;
-    case NEW_2_SCHEME:
-        outp += sprintf(outp, "NEW 2 ");
-        break;
-    default:
-        return 0;
-    }
-
+#if OCB_SCHEME
+    outp += sprintf(outp, "OCB ");
+#elif NEW_1_SCHEME
+    outp += sprintf(outp, "NEW 1 ");
+#elif NEW_2_SCHEME
+    outp += sprintf(outp, "NEW 2 ");
+#elif NEW_3_SCHEME
+    outp += sprintf(outp, "NEW 3 ");
+#endif
 	
     outp += sprintf(outp, "%s ", infoString);
     #if __INTEL_COMPILER
@@ -183,54 +178,34 @@ int run(int argc, char **argv, int scheme)
 	/*
 	 * Get times over different lengths
 	 */
-    switch (scheme){
-    case OCB_SCHEME:
-        outp += sprintf(outp, "OCB\n");
-        i=0;
-        len = iter_list[0];
-        while (len >= 0) {
-            nonce[11] = 0;
-            if (len % 32 == 0) {
-                DO(ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
-                tmpd = ((median_get())/(len*(double)N));
-                outp += sprintf(outp, "%5d  %6.2f\n", len, tmpd);
-            }
-            ++i;
-            len = iter_list[i];
+#if OCB_SCHEME
+    outp += sprintf(outp, "OCB\n");
+#elif NEW_1_SCHEME
+    outp += sprintf(outp, "New 1 Scheme\n");
+#elif NEW_2_SCHEME
+    outp += sprintf(outp, "New 2 Scheme\n");
+#elif NEW_3_SCHEME
+    outp += sprintf(outp, "New 3 Scheme\n");
+#endif
+    i=0;
+    len = iter_list[0];
+    while (len >= 0) {
+        nonce[11] = 0;
+        if (len % 32 == 0) {
+#if OCB_SCHEME
+            DO(ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#elif NEW_1_SCHEME
+            DO(new_1_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#elif NEW_2_SCHEME
+            DO(new_2_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#elif NEW_3_SCHEME
+            /* DO(new_3_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1); */
+#endif
+            tmpd = ((median_get())/(len*(double)N));
+            outp += sprintf(outp, "%5d  %6.2f\n", len, tmpd);
         }
-        break;
-    case NEW_1_SCHEME:
-        outp += sprintf(outp, "New 1 Scheme\n");
-        i=0;
-        len = iter_list[0];
-        while (len >= 0) {
-            nonce[11] = 0;
-            if (len % 32 == 0) {
-                DO(new_1_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
-                tmpd = ((median_get())/(len*(double)N));
-                outp += sprintf(outp, "%5d  %6.2f\n", len, tmpd);
-            }
-            ++i;
-            len = iter_list[i];
-        }
-        break;
-    case NEW_2_SCHEME:
-        outp += sprintf(outp, "New 2 Scheme\n");
-        i=0;
-        len = iter_list[0];
-        while (len >= 0) {
-            nonce[11] = 0;
-            if (len % 32 == 0) {
-                DO(new_2_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
-                tmpd = ((median_get())/(len*(double)N));
-                outp += sprintf(outp, "%5d  %6.2f\n", len, tmpd);
-            }
-            ++i;
-            len = iter_list[i];
-        }
-        break;
-    default:
-        assert(0);
+        ++i;
+        len = iter_list[i];
     }
 
 	if (fp) {
@@ -240,8 +215,4 @@ int run(int argc, char **argv, int scheme)
         fprintf(stdout, "%s", outbuf);
     
 	return ((pt[0]==12) && (pt[10]==34) && (pt[20]==56) && (pt[30]==78));
-}
-
-int main(int argc, char **argv) {
-    run(argc, argv, OCB_SCHEME);
 }

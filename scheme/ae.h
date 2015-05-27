@@ -122,6 +122,16 @@ int new_2_ae_encrypt(ae_ctx     *ctx,
                      void       *ct,
                      void       *tag,
                      int         final);
+int new_3_ae_encrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *pt,
+                     int         pt_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *ct,
+                     void       *tag,
+                     int         final);
+
 /* --------------------------------------------------------------------------
  *
  * Encrypt plaintext; provide for authentication of ciphertext/associated data.
@@ -159,6 +169,34 @@ int ae_decrypt(ae_ctx     *ctx,
                void       *pt,
                const void *tag,
                int         final);
+int new_1_ae_decrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *ct,
+                     int         ct_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *pt,
+                     const void *tag,
+                     int         final);
+int new_2_ae_decrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *ct,
+                     int         ct_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *pt,
+                     const void *tag,
+                     int         final);
+int new_3_ae_decrypt(ae_ctx     *ctx,
+                     const void *nonce,
+                     const void *ct,
+                     int         ct_len,
+                     const void *ad,
+                     int         ad_len,
+                     void       *pt,
+                     const void *tag,
+                     int         final);
+
 /* --------------------------------------------------------------------------
  *
  * Decrypt ciphertext; provide authenticity of plaintext and associated data.
