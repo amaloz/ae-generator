@@ -3,6 +3,7 @@ import scipy as sp
 import scipy.stats
 import sys
 
+# http://stackoverflow.com/questions/15033511/compute-a-confidence-interval-from-sample-data
 if __name__ == '__main__':
     confidence=0.95
     a = 1.0*np.array(eval(sys.argv[1]))
