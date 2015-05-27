@@ -562,7 +562,7 @@ static inline void AES_ecb_decrypt_blks(block *blks, unsigned nblks, AES_KEY *ke
         blks[i] =_mm_aesdeclast_si128(blks[i], sched[j]);
 }
 
-#define BPI 4  /* Number of blocks in buffer per ECB call   */
+#define BPI 8  /* Number of blocks in buffer per ECB call   */
                /* Set to 4 for Westmere, 8 for Sandy Bridge */
 
 #endif
@@ -791,7 +791,7 @@ static void process_ad(ae_ctx *ctx, const void *ad, int ad_len, int final)
             ad_checksum = xor_block(ad_checksum, ta[1]);
             ad_checksum = xor_block(ad_checksum, ta[2]);
             ad_checksum = xor_block(ad_checksum, ta[3]);
-#if (BPI == 8)
+#if BPI == 8
             ad_checksum = xor_block(ad_checksum, ta[4]);
             ad_checksum = xor_block(ad_checksum, ta[5]);
             ad_checksum = xor_block(ad_checksum, ta[6]);

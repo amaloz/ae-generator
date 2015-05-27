@@ -74,9 +74,11 @@ void median_print(void) {
 extern void validate();
 
 #define OCB_SCHEME 0
-#define NEW_1_SCHEME 1
-#define NEW_2_SCHEME 0
+#define NEW_1_SCHEME 0
+#define NEW_2_SCHEME 1
 #define NEW_3_SCHEME 0
+
+#define ENCRYPT 0
 
 int main(int argc, char **argv)
 {
@@ -126,6 +128,12 @@ int main(int argc, char **argv)
     outp += sprintf(outp, "NEW 2 ");
 #elif NEW_3_SCHEME
     outp += sprintf(outp, "NEW 3 ");
+#endif
+
+#if ENCRYPT
+    outp += sprintf(outp, "(Encrypt) ");
+#else
+    outp += sprintf(outp, "(Decrypt) ");
 #endif
 	
     outp += sprintf(outp, "%s ", infoString);
@@ -193,13 +201,29 @@ int main(int argc, char **argv)
         nonce[11] = 0;
         if (len % 32 == 0) {
 #if OCB_SCHEME
+#  if ENCRYPT
             DO(ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  else
+            DO(ae_decrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  endif
 #elif NEW_1_SCHEME
+#  if ENCRYPT
             DO(new_1_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  else
+            DO(new_1_ae_decrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  endif
 #elif NEW_2_SCHEME
+#  if ENCRYPT
             DO(new_2_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  else
+            DO(new_2_ae_decrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  endif
 #elif NEW_3_SCHEME
-            /* DO(new_3_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1); */
+#  if ENCRYPT
+            DO(new_3_ae_encrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  else
+            DO(new_3_ae_decrypt(ctx, nonce, pt, len, NULL, 0, pt, tag, 1); nonce[11] += 1);
+#  endif
 #endif
             tmpd = ((median_get())/(len*(double)N));
             outp += sprintf(outp, "%5d  %6.2f\n", len, tmpd);
