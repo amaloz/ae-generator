@@ -2312,7 +2312,7 @@ int new_3_ae_decrypt(ae_ctx     *ctx,
 /* Simple test program                                                     */
 /* ----------------------------------------------------------------------- */
 
-#if 1
+#if 0
 
 #include <stdio.h>
 #include <time.h>
