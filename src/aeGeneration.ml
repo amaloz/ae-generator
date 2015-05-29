@@ -141,6 +141,7 @@ let process_decode block ~simple =
     Lgr.info "Trying %s" (string_of_op_list block);
     let open Or_error.Monad_infix in
     AeGraph.create block Decode        >>= fun decode ->
+    AeGraph.check_paths decode         >>= fun () ->
     AeGraph.derive_encode_graph decode >>= fun encode ->
     AeGraph.is_secure encode ~simple   >>= fun () ->
     AeGraph.is_secure decode ~simple   >>| fun () ->
@@ -227,5 +228,4 @@ let gen ?(print=false) ?(simple=false) size phase =
   let found = remove_dups ~simple found in
   printf "# Unique: %d\n%!" (List.length found);
   if print then
-    List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block));
-  shutdown ()
+    List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block))

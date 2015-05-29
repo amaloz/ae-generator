@@ -22,6 +22,7 @@ module V = struct
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
+module Check = Graph.Path.Check(G)
 
 let string_of_v v =
   let inst, _ = G.V.label v in
@@ -446,6 +447,15 @@ let check t types rand checks ~simple =
   | false -> Or_error.errorf "Graph insecure on inputs %s"
                (List.to_string (Array.to_list types) ~f:string_of_typ)
 
+(* Checks that there exists paths between IN nodes and their associated OUT
+   nodes *)
+let check_paths t =
+  let c = Check.create t.g in
+  let check_path = Check.check_path in
+  let f inst = find_vertex_by_inst t.g inst in
+  if check_path c (f In1) (f Out1) && check_path c (f In2) (f Out2) then Ok ()
+  else Or_error.errorf "Paths don't check out"
+
 let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
@@ -551,6 +561,7 @@ let is_parallel t strict ~simple =
           if simple then [v] else [v] @ [find_vertex_by_inst t.g Ini2]);
       not (is_marked Tbc)
     in
+    (* not (is_marked Tbc) *)
     if strict && is_marked Tbc then false
     else if
       (if simple then is_marked Fin1 else is_marked Fin1 || is_marked Fin2)
