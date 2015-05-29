@@ -180,72 +180,6 @@ let process_decode block ~simple =
       | Ok block -> Some block
       | Error _ -> None)
 
-(* module Worker = struct *)
-(*   module T = struct *)
-(*     type 'worker functions = { *)
-(*       gen: ('worker, int * synth_op, op list list) Parallel.Function.t *)
-(*     } *)
-
-(*     type init_arg = unit with bin_io *)
-(*     let init = return *)
-
-(*     module Functions(C:Parallel.Creator) = struct *)
-(*       let rec fold size depth ninputs block counts acc op = *)
-(*         (\* n contains the number of available inputs after 'op' is used *\) *)
-(*         let n = ninputs - n_in op + n_out op in *)
-(*         if n >= 0 then *)
-(*           let count = List.Assoc.find counts op in *)
-(*           let skip = match count with *)
-(*             | Some c -> c = 0 *)
-(*             | None -> false *)
-(*           in *)
-(*           if not skip then *)
-(*             if n_in op <= ninputs && not (is_pruneable op block) then *)
-(*               let counts = match count with *)
-(*                 | Some c -> List.Assoc.add counts op (c - 1) *)
-(*                 | None -> counts *)
-(*               in *)
-(*               loop size (depth - 1) n (op :: block) counts acc *)
-(*             else acc *)
-(*           else acc *)
-(*         else acc *)
-(*       and loop size depth ninputs block counts acc = *)
-(*         match depth with *)
-(*         | 0 -> *)
-(*           let block = List.rev block in *)
-(*           if ninputs = 0 && is_valid block then *)
-(*             match Decode (\* phase *\) with *)
-(*             | Decode -> process_decode block |> List.append acc *)
-(*             | Encode -> failwith "cannot generate encode graphs" *)
-(*             | Tag -> failwith "generating tag graphs not yet implemented" *)
-(*           else *)
-(*             acc *)
-(*         | _ when depth > 0 -> *)
-(*           if depth = size - 2 then begin *)
-(*             Log.Global.debug "Finding modes starting with %s..." *)
-(*               (List.map (List.rev block) string_of_synth_op |> String.concat ~sep:" "); *)
-(*             let start = Time.now () in *)
-(*             let blocks = List.fold ops ~init:acc *)
-(*                 ~f:(fold size depth ninputs block counts) in *)
-(*             let stop = Time.now () in *)
-(*             Log.Global.debug "  Took: %s" (Time.diff stop start |> Time.Span.to_string); *)
-(*             blocks *)
-(*           end *)
-(*           else *)
-(*             List.fold ops ~init:acc ~f:(fold size depth ninputs block counts) *)
-(*         | _ -> acc *)
-
-(*       type gen_arg = int * synth_op with bin_io *)
-(*       let gen_impl (size, op) = fold size size 0 [] counts [] op |> return *)
-(*       let gen = C.create_rpc ~f:gen_impl ~bin_input:bin_gen_arg *)
-(*           ~bin_output:(List.bin_t (List.bin_t bin_op)) () *)
-
-(*       let functions = { gen } *)
-(*     end *)
-(*   end *)
-(*   include Parallel.Make_worker(T) *)
-(* end *)
-
 let rec fold ~simple ~maxsize ~depth ~ninputs ~block ~counts acc op =
   (* n contains the number of available inputs after 'op' is used *)
   let n = ninputs - n_in op + n_out op in
@@ -279,13 +213,6 @@ and loop ~simple ~maxsize ~depth ~ninputs ~block ~counts acc =
 
 let gen ?(print=false) ?(simple=false) size phase =
   assert (phase = Decode);
-  (* let worker h = *)
-  (*   Pipe.iter_without_pushback (Hub.listen_simple h) ~f:(fun (id, op) -> *)
-  (*       Log.Global.debug "Got op %s" (string_of_synth_op op); *)
-  (*       let blocks = fold size size 0 [] counts [] op in *)
-  (*       Hub.send h id blocks) *)
-  (*   >>| fun () -> `Done *)
-  (* in *)
   Lgr.info "Generating %s modes of size %d"
     (if simple then "simple" else "normal") size;
   let counts = if simple then counts_simple else counts in
@@ -299,20 +226,6 @@ let gen ?(print=false) ?(simple=false) size phase =
   printf "# Secure: %d\n%!" (List.length found);
   let found = remove_dups ~simple found in
   printf "# Unique: %d\n%!" (List.length found);
-  (* Deferred.List.iter (\* ~how:`Parallel *\) initial ~f:(fun op -> *)
-  (*     (\* Worker.spawn_exn () ~on_failure:Error.raise *\) *)
-  (*     (\* >>= fun worker -> *\) *)
-  (*     (\* Worker.run_exn worker ~f:Worker.functions.gen ~arg:(size, op) *\) *)
-  (*     (\* >>| fun blocks -> *\) *)
-  (*     (\* found := List.append blocks !found *\) *)
-  (*     let blocks = fold size size 0 [] counts [] op in *)
-  (*     found := List.append blocks !found; *)
-  (*     Deferred.unit *)
-  (*     (\* Parallel.spawn ~where:Parallel.round_robin worker >>= fun (c, _) -> *\) *)
-  (*     (\* Channel.write c op; Channel.read c >>| fun blocks -> *\) *)
-  (*     (\* found := List.append blocks !found *\) *)
-  (*   ) >>= fun () -> *)
-  (* return (remove_dups !found) >>| fun found -> *)
   if print then
     List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block));
   shutdown ()

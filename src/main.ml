@@ -196,8 +196,7 @@ let run_check mode decode tag check display eval file parallel strict cost save 
     match run () with
     | Ok _ -> ()
     | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err)
-  end;
-  shutdown ()
+  end
 
 let spec_synth =
   let size = 12 in
@@ -212,7 +211,7 @@ let spec_synth =
 let run_synth size print simple debug () =
   set_log_level debug;
   let _ = AeGeneration.gen ~simple ~print size Decode in
-  shutdown ()
+  ()
 
 let check =
   Command.basic
