@@ -451,9 +451,9 @@ let check t types rand checks ~simple =
    nodes *)
 let check_paths t =
   let c = Check.create t.g in
-  let check_path = Check.check_path in
   let f inst = find_vertex_by_inst t.g inst in
-  if check_path c (f In1) (f Out1) && check_path c (f In2) (f Out2) then Ok ()
+  if Check.check_path c (f In1) (f Out1)
+     && Check.check_path c (f In2) (f Out2) then Ok ()
   else Or_error.errorf "Paths don't check out"
 
 let is_secure_encode t types ~simple =
@@ -524,53 +524,112 @@ let is_secure t ~simple =
     is_secure_tag t randtypes types ~simple
 
 let is_parallel t strict ~simple =
-  let mark v = G.Mark.set v 1 in
+  Lgr.info "Checking parallelizability of %s graph" @@ string_of_phase t.phase;
+  let maxcost = if strict then 1 else List.length (find_all_vertices_by_inst t.g Tbc) in
+  let ini1, ini2 = ref 0, ref 0 in
   let rec f v =
     let inst, _ = G.V.label v in
-    match inst with
-    | In1 | In2 | Ini1 | Ini2 -> assert false
-    | Dup ->
-      let s = G.succ t.g v in
-      List.iter s ~f
-    | Xor ->
-      G.succ t.g v |> List.hd_exn |> f
-    | Tbc ->
-      Lgr.debug "Hit TBC node";
-      mark v;
-      G.succ t.g v |> List.hd_exn |> f
-    | Fin1 | Fin2 ->
-      Lgr.debug "Hit FIN node";
-      mark v
-    | Out1 | Out2 -> ()
-  in
-  Lgr.info "Checking parallelizability of %s graph" @@ string_of_phase t.phase;
-  let is_marked inst =
-    let vs = find_all_vertices_by_inst t.g inst in
-    List.exists vs (fun v -> G.Mark.get v = 1)
-  in
-  let itergraph fvs =
-    G.Mark.clear t.g;
-    let vs = fvs () in
-    List.iter vs (fun v -> G.succ t.g v |> List.hd_exn |> f)
-  in
-  let check simple =
-    itergraph (fun () -> find_all_vertices_by_inst t.g Tbc);
-    let check simple =
-      itergraph (fun () ->
-          let v = find_vertex_by_inst t.g Ini1 in
-          if simple then [v] else [v] @ [find_vertex_by_inst t.g Ini2]);
-      not (is_marked Tbc)
+    let r =
+      match inst with
+      | In1 | In2 -> 0
+      | Ini1 -> !ini1
+      | Ini2 -> !ini2
+      | Dup ->
+        let v = G.pred t.g v |> List.hd_exn in
+        f v
+      | Xor ->
+        let ps = G.pred t.g v in
+        begin
+          match List.length ps with
+          | 1 -> f (List.hd_exn ps)
+          | 2 ->
+            let l = List.map ps ~f in
+            max (List.nth_exn l 0) (List.nth_exn l 1)
+          | _ -> assert false
+        end
+      | Tbc ->
+        let v = G.pred t.g v |> List.hd_exn in
+        (f v) + 1
+      | Fin1 | Fin2 | Out1 | Out2 ->
+        let v = G.pred t.g v |> List.hd_exn in
+        f v
     in
-    (* not (is_marked Tbc) *)
-    if strict && is_marked Tbc then false
-    else if
-      (if simple then is_marked Fin1 else is_marked Fin1 || is_marked Fin2)
-    then check simple
-    else true
+    (* Lgr.debug "cost(%s) = %d" (string_of_inst inst) r; *)
+    r
+  in
+  let run_f l val1 val2 =
+    ini1 := val1; ini2 := val2;
+    let r = List.map l ~f in
+    if simple then r @ [0] else r
   in
   match t.phase with
-  | Encode | Decode -> check simple
-  | Tag -> failwith "Tag phase cannot be checked for parallelizability"
+  | Encode | Decode ->
+    let l = [find_vertex_by_inst t.g Out1;
+             find_vertex_by_inst t.g Out2;
+             find_vertex_by_inst t.g Fin1] in
+    let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
+    let r = run_f l 0 0 in
+    let new1, new2 = List.nth_exn r 2, List.nth_exn r 3 in
+    if new1 > 0 || new2 > 0 then begin
+      Lgr.debug "cost(FIN1) = %d, cost(FIN2) = %d" new1 new2;
+      let r' = run_f l new1 new2 in
+      let cost = max (List.nth_exn r 0) (List.nth_exn r 1) in
+      let cost' = max (List.nth_exn r' 0) (List.nth_exn r' 1) in
+      Lgr.debug "cost(Old) = %d, cost(New) = %d" cost cost';
+      if cost <> cost' then false else cost <= maxcost
+    end else
+      let cost = max (List.nth_exn r 0) (List.nth_exn r 1) in
+      cost <= maxcost
+  | Tag -> assert false
+(* let mark v = G.Mark.set v 1 in *)
+(* let rec f v = *)
+(*   let inst, _ = G.V.label v in *)
+(*   match inst with *)
+(*   | In1 | In2 | Ini1 | Ini2 -> assert false *)
+(*   | Dup -> *)
+(*     let s = G.succ t.g v in *)
+(*     List.iter s ~f *)
+(*   | Xor -> *)
+(*     G.succ t.g v |> List.hd_exn |> f *)
+(*   | Tbc -> *)
+(*     Lgr.debug "Hit TBC node"; *)
+(*     mark v; *)
+(*     G.succ t.g v |> List.hd_exn |> f *)
+(*   | Fin1 | Fin2 -> *)
+(*     Lgr.debug "Hit FIN node"; *)
+(*     mark v *)
+(*   | Out1 | Out2 -> () *)
+(* in *)
+
+(* let is_marked inst = *)
+(*   let vs = find_all_vertices_by_inst t.g inst in *)
+(*   List.exists vs (fun v -> G.Mark.get v = 1) *)
+(* in *)
+(* let itergraph fvs = *)
+(*   G.Mark.clear t.g; *)
+(*   let vs = fvs () in *)
+(*   List.iter vs (fun v -> G.succ t.g v |> List.hd_exn |> f) *)
+(* in *)
+(* let check simple = *)
+(*   itergraph (fun () -> find_all_vertices_by_inst t.g Tbc); *)
+(*   let check simple = *)
+(*     itergraph (fun () -> *)
+(*         let v = find_vertex_by_inst t.g Ini1 in *)
+(*         if simple then [v] else [v] @ [find_vertex_by_inst t.g Ini2]); *)
+(*     not (is_marked Tbc) *)
+(*   in *)
+(*   (\* not (is_marked Tbc) *\) *)
+(*   if strict && is_marked Tbc then false *)
+(*   else if *)
+(*     (if simple then is_marked Fin1 else is_marked Fin1 || is_marked Fin2) *)
+(*   then check simple *)
+(*   else true *)
+(* in *)
+(* match t.phase with *)
+(* | Encode | Decode -> check simple *)
+(* | Tag -> failwith "Tag phase cannot be checked for parallelizability" *)
+
+
 
 (* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
 (*   let open Or_error.Monad_infix in *)
