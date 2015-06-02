@@ -1,0 +1,16 @@
+An implementation of three of the synthesized AE schemes, based on the optimized
+OCB code of Ted Krovetz (http://web.cs.ucdavis.edu/~rogaway/ocb/news/).  The
+first scheme has a (simplified) Decode algorithm of:
+
+      IN1 TBC INI1 XOR DUP OUT1 IN2 TBC XOR DUP OUT2 FIN1
+
+the second scheme has a (simplified) Decode algorithm of:
+
+      IN1 TBC DUP IN2 TBC XOR DUP INI1 XOR FIN1 OUT2 OUT1
+
+and the third scheme has a (simplified) Decode algorithm of:
+
+      INI1 IN1 XOR TBC DUP OUT1 IN2 XOR TBC DUP OUT2 FIN1
+
+To run timing experiments of this scheme, modifying the MHz variable in run.sh
+to the MHz of your processor and run "bash run.sh".
