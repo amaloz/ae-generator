@@ -2,8 +2,8 @@ open AeInclude
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
-let default_tag = "INI1 TBC OUT1 INI2"
-let default_tag_simple = "INI1 TBC OUT1"
+let default_tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2]
+let default_tag_simple = [Inst Ini1; Inst Tbc; Inst Out1]
 
 let debug =
   Command.Spec.Arg_type.create (fun s ->
@@ -19,6 +19,14 @@ let mode =
         let _ = eprintf "Error: unknown mode '%s'. Available modes: %s.\n%!"
             s AeModes.modes_string in exit 1)
 
+let scheme =
+  Command.Spec.Arg_type.create (fun s ->
+      match AeInst.from_string_block s with
+      | Ok block -> block
+      | Error err ->
+        let _ = eprintf "%s" (Error.to_string_hum err) in exit 1
+    )
+
 let spec_common =
   let open Command.Spec in
   empty
@@ -32,9 +40,11 @@ let spec_check =
   empty
   +> flag "-mode" (optional mode)
     ~doc:(sprintf "M Load mode M (Available modes: %s)" AeModes.modes_string)
-  +> flag "-decode" (optional string)
+  +> flag "-encode" (optional scheme)
+    ~doc:"A Sets A to be the encode block"
+  +> flag "-decode" (optional scheme)
     ~doc:"A Sets A to be the decode block"
-  +> flag "-tag" (optional string)
+  +> flag "-tag" (optional scheme)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
     ~doc:" Check if given mode is secure"
@@ -56,18 +66,24 @@ let spec_check =
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file parallel strict cost save simple debug () =
+let run_check mode encode decode tag check display eval file parallel strict cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
-    | Some mode -> Ok (mode, AeModes.decode_string mode)
+    | Some mode -> Ok mode
     | None -> begin
-        match decode, tag with
-        | Some decode, Some tag -> Ok (AeModes.create decode tag, decode)
-        | Some decode, None ->
+        match encode, decode, tag with
+        | Some encode, Some decode, _ ->
+          Or_error.error_string "Only one of encode or decode algorithm can be given."
+        | Some encode, None, Some tag -> Ok (AeModes.create encode tag)
+        | None, Some decode, Some tag ->
+          assert false
+        | None, Some decode, None ->
+          assert false
+        | Some encode, None, None ->
           let tag = if simple then default_tag_simple else default_tag in
-          Ok (AeModes.create decode tag, decode)
-        | None, _ -> Or_error.error_string "Decode algorithm is missing."
+          Ok (AeModes.create encode tag)
+        | None, None, _ -> Or_error.error_string "Encode algorithm is missing."
       end
   in
   let fcheck mode =
@@ -79,7 +95,7 @@ let run_check mode decode tag check display eval file parallel strict cost save 
       if AeGraph.is_parallel mode.encode strict ~simple
          && AeGraph.is_parallel mode.decode strict ~simple
       then Ok ()
-      else Or_error.error_string "Not parallelizable"
+      else Or_error.errorf "Not %s parallelizable." (if strict then "strongly" else "weakly")
     else Ok ()
   in
   (* let fmisuse mode = *)
@@ -98,24 +114,21 @@ let run_check mode decode tag check display eval file parallel strict cost save 
     Ok ()
   in
   let fdisplay mode save =
-    AeGraph.display mode.decode mode.encode mode.tag ~save;
+    AeGraph.display mode.encode mode.decode mode.tag ~save;
     Ok ()
   in
   let run_mode mode =
-    Lgr.info "Checking [%s] [%s]" (AeModes.decode_string mode)
-      (AeModes.tag_string mode);
-    let f str phase =
-      AeInst.from_string_block str        >>= fun block ->
+    Lgr.info "Checking %s" (AeModes.to_string mode);
+    let f block phase =
       AeInst.validate block phase ~simple >>= fun () ->
       AeGraph.create block phase
     in
-    f (AeModes.decode_string mode) Decode >>= fun decode ->
-    f (AeModes.tag_string mode) Tag       >>= fun tag ->
-    AeGraph.derive_encode_graph decode    >>= fun encode ->
+    f (AeModes.encode mode) Encode  >>= fun encode ->
+    f (AeModes.tag mode) Tag        >>= fun tag ->
+    AeGraph.reverse encode ~simple  >>= fun decode ->
     let mode = { encode = encode; decode = decode; tag = tag } in
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
-    (* begin if misuse then fmisuse mode else Ok () end        >>= fun () -> *)
     begin if eval then feval mode else Ok () end
   in
   let read_file file =
@@ -123,24 +136,23 @@ let run_check mode decode tag check display eval file parallel strict cost save 
       if line = "" then (count, acc)
       else if String.contains ~pos:0 ~len:1 line '#' then (count, acc)
       else
-        let decode = String.strip ~drop:(fun c -> c = '\n') line in
-        let mode = AeModes.create decode default_tag in
-        let f mode =
-          AeInst.from_string_block (AeModes.decode_string mode) >>= fun block ->
-          AeInst.validate block Decode ~simple                  >>= fun () ->
+        let parse line =
+          let encode = String.strip ~drop:(fun c -> c = '\n') line in
+          AeInst.from_string_block encode       >>= fun encode ->
+          AeInst.validate encode Encode ~simple >>= fun () ->
           begin
             match cost with
             | None -> Ok ()
             | Some cost ->
-              let cost' = AeInst.count_inst block Tbc in
+              let cost' = AeInst.count_inst encode Tbc in
               if cost' > cost
-              then Or_error.error_string (sprintf "Cost too large (%d > %d)" cost' cost)
+              then Or_error.errorf "Cost too large (%d > %d)" cost' cost
               else Ok ()
-          end >>| fun () ->
-          block
+          end                                   >>| fun () ->
+          encode
         in
-        match f mode with
-        | Ok block -> (count + 1, block :: acc)
+        match parse line with
+        | Ok encode -> (count + 1, encode :: acc)
         | Error _ -> (count + 1, acc)
     in
     let f ic = In_channel.fold_lines ic ~init:(0, []) ~f:fold in
@@ -152,19 +164,18 @@ let run_check mode decode tag check display eval file parallel strict cost save 
       let maxsize = ref 0 in
       let found = ref [] in
       let f count block =
-        let mode_s = string_of_op_list block in
         let tag = if simple then default_tag_simple else default_tag in
-        let mode = AeModes.create mode_s tag in
+        let mode = AeModes.create block tag in
         match run_mode mode with
         | Ok () ->
-          printf "%s\n%!" mode_s;
+          printf "%s\n%!" (AeModes.to_string mode);
           let size = List.length block in
           if size > !maxsize then maxsize := size;
           if size < !minsize then minsize := size;
           found := block :: !found;
           count + 1
         | Error err ->
-          (* eprintf "%s: %s\n%!" mode_s (Error.to_string_hum err); *)
+          eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err);
           count
       in
       let secure = List.fold ~init:0 blocks ~f in
@@ -188,9 +199,9 @@ let run_check mode decode tag check display eval file parallel strict cost save 
     end >>= fun () ->
     match file with
     | Some file -> read_file file
-    | None -> get_mode mode >>= fun (mode, decode) ->
+    | None -> get_mode mode >>= fun mode ->
       run_mode mode         >>| fun () ->
-      printf "%s\n%!" decode
+      printf "%s\n%!" (AeModes.encode mode |> string_of_op_list)
   in
   begin
     match run () with
@@ -203,14 +214,14 @@ let spec_synth =
   let open Command.Spec in
   empty
   +> flag "-size" (optional_with_default size int)
-    ~doc:(sprintf "N Number of instructions in decode to generate (default: %d)" size)
+    ~doc:(sprintf "N Number of instructions in encode to generate (default: %d)" size)
   +> flag "-print" no_arg
     ~doc:" Print found schemes to stdout"
   ++ spec_common
 
 let run_synth size print simple debug () =
   set_log_level debug;
-  let _ = AeGeneration.gen ~simple ~print size Decode in
+  let _ = AeGeneration.gen ~simple ~print size in
   ()
 
 let check =

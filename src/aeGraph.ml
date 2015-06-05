@@ -246,9 +246,9 @@ let eval t ~simple ~msg1 ~msg2 =
 
 exception Unencryptable of string
 
-let derive_encode_graph t =
-  assert (t.phase = Decode);
-  Lgr.info "Deriving Encode graph";
+let reverse t ~simple =
+  assert (t.phase = Decode || t.phase = Encode);
+  Lgr.info "Reversing graph";
   let g = G.create () in
   let map_inst = function
     | In1 -> Out1
@@ -281,9 +281,15 @@ let derive_encode_graph t =
     G.Mark.set v ctr;
     G.Mark.set v' ctr;
     let checks =
-      match map_inst inst with
-      | Out1 | Out2 -> v' :: checks
-      | _ -> checks
+      if t.phase = Decode then
+        match map_inst inst with
+        | Out1 | Out2 -> v' :: checks
+        | _ -> checks
+      else
+        match map_inst inst with
+        | Fin1 -> v' :: checks
+        | Fin2 -> if simple then checks else v' :: checks
+        | _ -> checks
     in
     match inst with
     | Out1 | Out2 | Ini1 | Ini2 ->
@@ -363,7 +369,7 @@ let derive_encode_graph t =
   in
   try
     loop vs;
-    Ok { g = g; phase = Encode; checks = checks }
+    Ok { g = g; phase = (if t.phase = Encode then Decode else Encode); checks = checks }
   with Unencryptable err ->
     Or_error.errorf "Cannot derive encode graph: %s" err
 
@@ -460,10 +466,11 @@ let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
   let ctr v = let _, map = G.V.label v in !map.ctr in
-  assert (List.length t.checks = 2);
-  let a, b = List.nth_exn t.checks 0, List.nth_exn t.checks 1 in
-  if ctr a <> ctr b then Ok ()
-  else Or_error.error_string "Graph insecure: counters are equal"
+  match t.checks with
+  | a :: b :: [] -> 
+    if ctr a <> ctr b then Ok ()
+    else Or_error.errorf "Encode graph insecure: counters are equal"
+  | _ -> assert false
 
 let is_secure_decode t types ~simple =
   let f acc types = match acc with

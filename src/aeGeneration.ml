@@ -82,8 +82,7 @@ let remove_dups blocks ~simple =
     | _ -> assert false in
   let table = String.Table.create () ~size:1024 in
   let f block =
-    let decode = AeGraph.create block Decode |> ok_exn in
-    let encode = AeGraph.derive_encode_graph decode |> ok_exn in
+    let encode = AeGraph.create block Encode |> ok_exn in
     let r = AeGraph.eval encode ~simple ~msg1 ~msg2 in
     let r' = swap r in
     let s = AeGraph.eval encode ~simple ~msg1:msg2 ~msg2:msg1 in
@@ -140,11 +139,11 @@ let process_decode block ~simple =
   let process block =
     Lgr.info "Trying %s" (string_of_op_list block);
     let open Or_error.Monad_infix in
-    AeGraph.create block Decode        >>= fun decode ->
-    AeGraph.check_paths decode         >>= fun () ->
-    AeGraph.derive_encode_graph decode >>= fun encode ->
-    AeGraph.is_secure encode ~simple   >>= fun () ->
-    AeGraph.is_secure decode ~simple   >>| fun () ->
+    AeGraph.create block Encode      >>= fun encode ->
+    AeGraph.check_paths encode       >>= fun () ->
+    AeGraph.reverse encode ~simple   >>= fun decode ->
+    AeGraph.is_secure decode ~simple >>= fun () ->
+    AeGraph.is_secure encode ~simple >>| fun () ->
     Lgr.info "Secure: %s" (string_of_op_list block);
     printf "%s\n%!" (string_of_op_list block);
     block
@@ -212,8 +211,7 @@ and loop ~simple ~maxsize ~depth ~ninputs ~block ~counts acc =
     List.fold ops ~init:acc ~f:(fold ~simple ~maxsize ~depth ~ninputs ~block ~counts)
   | _ -> acc
 
-let gen ?(print=false) ?(simple=false) size phase =
-  assert (phase = Decode);
+let gen ?(print=false) ?(simple=false) size =
   Lgr.info "Generating %s modes of size %d"
     (if simple then "simple" else "normal") size;
   let counts = if simple then counts_simple else counts in
