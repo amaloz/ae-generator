@@ -61,8 +61,8 @@ let from_string s =
   | "TBC" -> Ok (Inst Tbc)
   | "SWAP" -> Ok (StackInst Swap)
   | "2SWAP" -> Ok (StackInst Twoswap)
-  | "" -> Or_error.error_string "no instruction given"
-  | _ as s -> Or_error.error_string (sprintf "unknown instruction '%s'" s)
+  | "" -> Or_error.errorf "no instruction given"
+  | _ as s -> Or_error.errorf "unknown instruction '%s'" s
 
 let from_string_block s =
   List.map (String.split s ~on:' ') from_string |> Or_error.combine_errors
@@ -103,9 +103,8 @@ let validate block phase ~simple =
   let one inst =
     let c = List.count block (eq inst) in
     if c = 1 then Ok ()
-    else Or_error.error_string
-        (sprintf "%s: Need exactly one %s instruction (%d found)"
-           (string_of_phase phase) (string_of_inst inst) c)
+    else Or_error.errorf "%s: Need exactly one %s instruction (%d found)"
+        (string_of_phase phase) (string_of_inst inst) c
   in
   let open Or_error.Monad_infix in
   match phase with
@@ -116,25 +115,15 @@ let validate block phase ~simple =
     in
     Or_error.combine_errors_unit (List.map l one) >>= fun () ->
     let f acc i = acc - n_in i + n_out i in
-    if List.fold block ~init:0 ~f = 0 then
-      Ok ()
-    else
-      Or_error.error_string (sprintf "%s: Leftover items on stack"
-                               (string_of_phase phase))
+    if List.fold block ~init:0 ~f = 0 then Ok ()
+    else Or_error.errorf "%s: Leftover items on stack" (string_of_phase phase)
   | Tag ->
     let l = if simple then [Ini1; Out1] else [Ini1; Ini2; Out1] in
     Or_error.combine_errors_unit (List.map l one) >>= fun () ->
-    let none =
-      if simple then
-        [Ini2; Out2; Fin1; Fin2]
-      else
-        [Out2; Fin1; Fin2]
-    in
+    let none = if simple then [Ini2; Out2; Fin1; Fin2] else [Out2; Fin1; Fin2] in
     let f op = List.exists none ~f:(fun inst -> op = Inst inst) in
-    if List.exists block ~f then
-      Or_error.error_string "Invalid instruction in Tag"
-    else
-      Ok ()
+    if List.exists block ~f then Or_error.errorf "Tag: Invalid instruction"
+    else Ok ()
 
 let is_valid block ~simple =
   let eq x y = (Inst x) = y in

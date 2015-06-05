@@ -27,12 +27,12 @@ let initial = [
 ]
 
 let counts = [
-  Op (Inst Tbc), 4;
+  Op (Inst Tbc), 4;             (* Allow a max number of 4 TBC nodes *)
   SynthInst Start, 4;
   SynthInst Terminal, 4;
 ]
 let counts_simple = [
-  Op (Inst Tbc), 4;
+  Op (Inst Tbc), 4;             (* Allow a max number of 4 TBC nodes *)
   SynthInst Start, 3;
   SynthInst Terminal, 3;
 ]
@@ -135,15 +135,21 @@ let term_perms_simple = permutations [Inst Fin1; Inst Out1; Inst Out2]
 
 let try_count = ref 0
 
-let process_decode block ~simple =
+let process block ~simple =
   let process block =
     Lgr.info "Trying %s" (string_of_op_list block);
     let open Or_error.Monad_infix in
-    AeGraph.create block Encode      >>= fun encode ->
-    AeGraph.check_paths encode       >>= fun () ->
-    AeGraph.reverse encode ~simple   >>= fun decode ->
-    AeGraph.is_secure decode ~simple >>= fun () ->
-    AeGraph.is_secure encode ~simple >>| fun () ->
+    AeGraph.create block Decode      >>= fun decode ->
+    AeGraph.check_paths decode       >>= fun () ->
+    AeGraph.reverse decode ~simple   >>= fun encode ->
+    AeGraph.is_secure encode ~simple >>= fun () ->
+    AeGraph.is_secure decode ~simple >>| fun () ->
+    (* AeGraph.create block Encode      >>= fun encode -> *)
+    (* AeGraph.check_paths encode       >>= fun () -> *)
+    (* AeGraph.is_secure encode ~simple >>= fun () -> *)
+    (* AeGraph.reverse encode ~simple   >>= fun decode -> *)
+    (* AeGraph.check_paths decode       >>= fun () -> *)
+    (* AeGraph.is_secure decode ~simple >>| fun () -> *)
     Lgr.info "Secure: %s" (string_of_op_list block);
     printf "%s\n%!" (string_of_op_list block);
     block
@@ -151,7 +157,8 @@ let process_decode block ~simple =
   (* Replace terminal nodes with leaf nodes *)
   let rec replace ~block ~perm ~typ =
     match block with
-    | x :: xs -> if x = SynthInst typ then
+    | x :: xs ->
+      if x = SynthInst typ then
         match perm with
         | y :: ys -> Op y :: (replace ~block:xs ~perm:ys ~typ)
         | _ -> assert false
@@ -204,16 +211,14 @@ and loop ~simple ~maxsize ~depth ~ninputs ~block ~counts acc =
   | 0 ->
     let block = List.rev block in
     if ninputs = 0 && is_valid ~simple block then
-      process_decode block ~simple |> List.append acc
+      process block ~simple |> List.append acc
     else
       acc
   | _ when depth > 0 ->
     List.fold ops ~init:acc ~f:(fold ~simple ~maxsize ~depth ~ninputs ~block ~counts)
   | _ -> acc
 
-let gen ?(print=false) ?(simple=false) size =
-  Lgr.info "Generating %s modes of size %d"
-    (if simple then "simple" else "normal") size;
+let gen ~simple ~print size =
   let counts = if simple then counts_simple else counts in
   let f acc op = 
     let blocks = fold ~simple ~maxsize:size ~depth:size ~ninputs:0 ~block:[]

@@ -42,8 +42,6 @@ let spec_check =
     ~doc:(sprintf "M Load mode M (Available modes: %s)" AeModes.modes_string)
   +> flag "-encode" (optional scheme)
     ~doc:"A Sets A to be the encode block"
-  +> flag "-decode" (optional scheme)
-    ~doc:"A Sets A to be the decode block"
   +> flag "-tag" (optional scheme)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
@@ -55,9 +53,9 @@ let spec_check =
   +> flag "-file" (optional file)
     ~doc:"FILE Run against modes in FILE"
   +> flag "-parallel" no_arg
-    ~doc:" Check if given mode is parallelizable"
-  +> flag "-strict" no_arg
-    ~doc:" Use strict check for parallelizability"
+    ~doc:" Check if given mode is (weakly) parallelizable"
+  +> flag "-strong" no_arg
+    ~doc:" Use strong parallelizability check"
   +> flag "-cost" (optional int)
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
@@ -66,24 +64,18 @@ let spec_check =
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode encode decode tag check display eval file parallel strict cost save simple debug () =
+let run_check mode encode tag check display eval file parallel strong cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
     | Some mode -> Ok mode
     | None -> begin
-        match encode, decode, tag with
-        | Some encode, Some decode, _ ->
-          Or_error.error_string "Only one of encode or decode algorithm can be given."
-        | Some encode, None, Some tag -> Ok (AeModes.create encode tag)
-        | None, Some decode, Some tag ->
-          assert false
-        | None, Some decode, None ->
-          assert false
-        | Some encode, None, None ->
+        match encode, tag with
+        | Some block, Some tag -> Ok (AeModes.create block tag)
+        | Some block, None ->
           let tag = if simple then default_tag_simple else default_tag in
-          Ok (AeModes.create encode tag)
-        | None, None, _ -> Or_error.error_string "Encode algorithm is missing."
+          Ok (AeModes.create block tag)
+        | None, _ -> Or_error.error_string "Encode algorithm is missing."
       end
   in
   let fcheck mode =
@@ -92,10 +84,11 @@ let run_check mode encode decode tag check display eval file parallel strict cos
     f mode.decode >>= fun () ->
     f mode.tag    >>= fun () ->
     if parallel then
-      if AeGraph.is_parallel mode.encode strict ~simple
-         && AeGraph.is_parallel mode.decode strict ~simple
+      if AeGraph.is_parallel mode.encode strong ~simple
+         && AeGraph.is_parallel mode.decode strong ~simple
       then Ok ()
-      else Or_error.errorf "Not %s parallelizable." (if strict then "strongly" else "weakly")
+      else Or_error.errorf "Not %s parallelizable."
+          (if strong then "strongly" else "weakly")
     else Ok ()
   in
   (* let fmisuse mode = *)
@@ -123,7 +116,7 @@ let run_check mode encode decode tag check display eval file parallel strict cos
       AeInst.validate block phase ~simple >>= fun () ->
       AeGraph.create block phase
     in
-    f (AeModes.encode mode) Encode  >>= fun encode ->
+    f (AeModes.block mode) Encode   >>= fun encode ->
     f (AeModes.tag mode) Tag        >>= fun tag ->
     AeGraph.reverse encode ~simple  >>= fun decode ->
     let mode = { encode = encode; decode = decode; tag = tag } in
@@ -131,28 +124,28 @@ let run_check mode encode decode tag check display eval file parallel strict cos
     begin if check then fcheck mode else Ok () end          >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
+  let check_cost block cost =
+    match cost with
+    | None -> Ok ()
+    | Some cost ->
+      let cost' = AeInst.count_inst block Tbc in
+      if cost' <= cost then Ok ()
+      else Or_error.errorf "Cost too large (%d > %d)" cost' cost
+  in
   let read_file file =
     let fold (count, acc) line =
       if line = "" then (count, acc)
       else if String.contains ~pos:0 ~len:1 line '#' then (count, acc)
       else
         let parse line =
-          let encode = String.strip ~drop:(fun c -> c = '\n') line in
-          AeInst.from_string_block encode       >>= fun encode ->
-          AeInst.validate encode Encode ~simple >>= fun () ->
-          begin
-            match cost with
-            | None -> Ok ()
-            | Some cost ->
-              let cost' = AeInst.count_inst encode Tbc in
-              if cost' > cost
-              then Or_error.errorf "Cost too large (%d > %d)" cost' cost
-              else Ok ()
-          end                                   >>| fun () ->
-          encode
+          let block = String.strip ~drop:(fun c -> c = '\n') line in
+          AeInst.from_string_block block       >>= fun block ->
+          AeInst.validate block Encode ~simple >>= fun () ->
+          check_cost block cost                >>| fun () ->
+          block
         in
         match parse line with
-        | Ok encode -> (count + 1, encode :: acc)
+        | Ok block -> (count + 1, block :: acc)
         | Error _ -> (count + 1, acc)
     in
     let f ic = In_channel.fold_lines ic ~init:(0, []) ~f:fold in
@@ -201,7 +194,7 @@ let run_check mode encode decode tag check display eval file parallel strict cos
     | Some file -> read_file file
     | None -> get_mode mode >>= fun mode ->
       run_mode mode         >>| fun () ->
-      printf "%s\n%!" (AeModes.encode mode |> string_of_op_list)
+      printf "%s\n%!" (AeModes.block mode |> string_of_op_list)
   in
   begin
     match run () with

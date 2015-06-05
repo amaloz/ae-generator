@@ -12,7 +12,7 @@ let string_of_typ = function
   | Bot -> "⊥"
   | Rand -> "$"
 
-type map = { typ : typ; ctr : int }
+type map = { typ : typ; ctr : int; array : int array }
 
 module V = struct
   (* Each vertex contains two elements: the instruction the vertex represents
@@ -36,7 +36,7 @@ let string_of_e e =
 
 let full_string_of_v v =
   let _, map = G.V.label v in
-  [string_of_typ !map.typ; Int.to_string !map.ctr]
+  [string_of_typ !map.typ; Int.to_string !map.ctr; Array.to_list !map.array |> List.to_string ~f:Int.to_string]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
@@ -58,6 +58,9 @@ let find_all_vertices_by_inst g inst =
   let l = G.fold_vertex f g [] in
   if l = [] then raise Not_found else l
 
+let xor_array a b =
+  Array.map2_exn a b (fun i j -> (i + j) % 2)
+
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
 let create block phase =
@@ -65,6 +68,12 @@ let create block phase =
   let s = Stack.create () in
   let g = G.create () in
   let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
+  let fchecks = function
+    | Encode -> (fun i dst acc -> if i = Out1 || i = Out2 then dst :: acc else acc)
+    | Decode -> (fun i dst acc -> if i = Fin1 then [dst] else acc)
+    | Tag -> (fun i dst acc -> if i = Out1 then [dst] else acc)
+  in
+  let fchecks = fchecks phase in
   let rec pop ~dst ~op = function
     | 0 -> Ok ()
     | n -> match Stack.pop s with
@@ -79,15 +88,16 @@ let create block phase =
   let f acc op =
     match op with
     | Inst i ->
-      let dst = G.V.create (i, ref { typ = Bot; ctr = 0 }) in
+      let dst = G.V.create (i, ref { typ = Bot; ctr = 0; array = [||] }) in
       G.add_vertex g dst;
       pop (AeInst.n_in op) ~dst ~op >>= fun () ->
       push (AeInst.n_out op) ~dst   >>= fun () ->
       acc                           >>| fun acc ->
-      if phase = Encode && (i = Out1 || i = Out2) then dst :: acc
-      else if phase = Decode && i = Fin1 then [dst]
-      else if phase = Tag && i = Out1 then [dst]
-      else acc
+      fchecks i dst acc
+      (* if phase = Encode && (i = Out1 || i = Out2) then dst :: acc *)
+      (* else if phase = Decode && i = Fin1 then [dst] *)
+      (* else if phase = Tag && i = Out1 then [dst] *)
+      (* else acc *)
     | StackInst i ->
       let open Option.Monad_infix in
       let result = match i with
@@ -108,7 +118,7 @@ let create block phase =
       else Or_error.error_string (errmsg op)
   in
   List.fold block ~init:(Ok []) ~f >>| fun checks ->
-  { g = g; phase = phase; checks = checks }
+  { g; phase; checks }
 
 module type Phase = sig val phase : phase end
 
@@ -247,8 +257,7 @@ let eval t ~simple ~msg1 ~msg2 =
 exception Unencryptable of string
 
 let reverse t ~simple =
-  assert (t.phase = Decode || t.phase = Encode);
-  Lgr.info "Reversing graph";
+  Lgr.info "Reversing %s graph" (string_of_phase t.phase);
   let g = G.create () in
   let map_inst = function
     | In1 -> Out1
@@ -271,26 +280,39 @@ let reverse t ~simple =
     assert (G.Mark.get v <= 1000);
     G.Mark.set v (G.Mark.get v + 1000) in
   let is_marked v = G.Mark.get v > 1000 in
+  let fchecks = function
+    | Encode -> (fun inst v acc ->
+        match map_inst inst with
+        | Fin1 -> v :: acc
+        | Fin2 -> if simple then acc else v :: acc
+        | _ -> acc)
+    | Decode -> (fun inst v acc ->
+        match map_inst inst with
+        | Out1 | Out2 -> v :: acc
+        | _ -> acc)
+    | Tag -> failwith "Fatal: Tag graph cannot be reversed"
+  in
+  let fchecks = fchecks t.phase in
   let f v (ctr, vs, checks) =
     let inst, _ = G.V.label v in
-    let v' = G.V.create (map_inst inst, ref { typ = Bot; ctr = 0 }) in
+    let v' = G.V.create (map_inst inst, ref { typ = Bot; ctr = 0; array = [||] }) in
     G.add_vertex g v';
     (* Give each vertex a unique mark, and make the two marks equal in both the
        old graph and the new graph, so that we can locate the same nodes between
        the two graphs. *)
     G.Mark.set v ctr;
     G.Mark.set v' ctr;
-    let checks =
-      if t.phase = Decode then
-        match map_inst inst with
-        | Out1 | Out2 -> v' :: checks
-        | _ -> checks
-      else
-        match map_inst inst with
-        | Fin1 -> v' :: checks
-        | Fin2 -> if simple then checks else v' :: checks
-        | _ -> checks
-    in
+    let checks = fchecks inst v' checks in
+    (* let checks = *)
+    (*   if t.phase = Decode then *)
+    (*     match map_inst inst with *)
+    (*     | Out1 | Out2 -> v' :: checks *)
+    (*     | _ -> checks *)
+    (*   else *)
+    (*     match map_inst inst with *)
+    (*     | Fin1 -> v' :: checks *)
+    (*     | Fin2 -> if simple then checks else v' :: checks *)
+    (*     | _ -> checks *)
     match inst with
     | Out1 | Out2 | Ini1 | Ini2 ->
       mark v; mark v'; (ctr + 1, vs, checks)
@@ -369,13 +391,15 @@ let reverse t ~simple =
   in
   try
     loop vs;
-    Ok { g = g; phase = (if t.phase = Encode then Decode else Encode); checks = checks }
+    Ok { g; phase = (if t.phase = Encode then Decode else Encode); checks }
   with Unencryptable err ->
     Or_error.errorf "Cannot derive encode graph: %s" err
 
 (* Runs the Map function mapping nodes to (type, ctr) tuples *)
 let map t types rand ~simple =
   Lgr.info "Checking %s %b" (List.to_string string_of_typ (Array.to_list types)) rand;
+  let ntbc = find_all_vertices_by_inst t.g Tbc |> List.length in
+  let i = ref 0 in
   let max_ctr = ref 0 in
   begin
     let f inst typ =
@@ -383,7 +407,7 @@ let map t types rand ~simple =
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
-      map := { typ = typ; ctr = f typ }
+      map := { typ; ctr = f typ; array = Array.init ntbc (fun _ -> 0) }
     in
     let l =
       match t.phase with
@@ -405,10 +429,14 @@ let map t types rand ~simple =
     | Tbc ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
+      (* let array = Array.copy !pmap.array in *)
+      let array = Array.init ntbc (fun _ -> 0) in
+      Array.set array !i 1;
+      i := !i + 1;
       if rand || !pmap.typ = One || !pmap.typ = Rand then begin
         max_ctr := !max_ctr + 1;
-        map := { typ = Rand; ctr = !max_ctr }
-      end else map := !pmap
+        map := { typ = Rand; ctr = !max_ctr; array }
+      end else map := { typ = !pmap.typ; ctr = !pmap.ctr; array }
     | Xor ->
       let ps = G.pred t.g v in
       let p1, p2 =
@@ -420,6 +448,7 @@ let map t types rand ~simple =
       let p1map, p2map =
         if !p1map.ctr < !p2map.ctr then !p2map, !p1map else !p1map, !p2map in
       let _, map = G.V.label v in
+      let array = xor_array p1map.array p2map.array in
       if (p1map.typ = Zero && p2map.typ = Zero)
       || (p1map.typ = Zero && p2map.typ = One)
       || (p1map.typ = One && p2map.typ = Zero) then
@@ -429,11 +458,11 @@ let map t types rand ~simple =
         | Zero, One | One, Zero -> One
         | _ , _ -> assert false
         in
-        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr }
+        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; array }
       else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
-        map := { typ = Rand; ctr = p1map.ctr }
+        map := { typ = Rand; ctr = p1map.ctr; array }
       else
-        map := { typ = Bot; ctr = p1map.ctr }
+        map := { typ = Bot; ctr = p1map.ctr; array }
   in
   let f' v =
     f v;
@@ -460,15 +489,17 @@ let check_paths t =
   let f inst = find_vertex_by_inst t.g inst in
   if Check.check_path c (f In1) (f Out1)
      && Check.check_path c (f In2) (f Out2) then Ok ()
-  else Or_error.errorf "Paths don't check out"
+  else Or_error.errorf "Redundant graph: Paths don't check out"
 
 let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
-  let ctr v = let _, map = G.V.label v in !map.ctr in
+  let f v = let _, map = G.V.label v in !map.array in
+  (* let ctr v = let _, map = G.V.label v in !map.ctr in *)
   match t.checks with
-  | a :: b :: [] -> 
-    if ctr a <> ctr b then Ok ()
+  | a :: b :: [] ->
+    if not (Array.equal (f a) (f b) (fun i j -> i = j)) then Ok ()
+    (* if ctr a <> ctr b then Ok () *)
     else Or_error.errorf "Encode graph insecure: counters are equal"
   | _ -> assert false
 
@@ -530,39 +561,30 @@ let is_secure t ~simple =
     in
     is_secure_tag t randtypes types ~simple
 
-let is_parallel t strict ~simple =
+let is_parallel t strong ~simple =
   Lgr.info "Checking parallelizability of %s graph" @@ string_of_phase t.phase;
-  let maxcost = if strict then 1 else List.length (find_all_vertices_by_inst t.g Tbc) in
+  let maxcost = if strong then 1 else List.length (find_all_vertices_by_inst t.g Tbc) in
   let ini1, ini2 = ref 0, ref 0 in
+  let pred v = G.pred t.g v |> List.hd_exn in
   let rec f v =
     let inst, _ = G.V.label v in
-    let r =
-      match inst with
-      | In1 | In2 -> 0
-      | Ini1 -> !ini1
-      | Ini2 -> !ini2
-      | Dup ->
-        let v = G.pred t.g v |> List.hd_exn in
-        f v
-      | Xor ->
-        let ps = G.pred t.g v in
-        begin
-          match List.length ps with
-          | 1 -> f (List.hd_exn ps)
-          | 2 ->
-            let l = List.map ps ~f in
-            max (List.nth_exn l 0) (List.nth_exn l 1)
-          | _ -> assert false
-        end
-      | Tbc ->
-        let v = G.pred t.g v |> List.hd_exn in
-        (f v) + 1
-      | Fin1 | Fin2 | Out1 | Out2 ->
-        let v = G.pred t.g v |> List.hd_exn in
-        f v
-    in
-    (* Lgr.debug "cost(%s) = %d" (string_of_inst inst) r; *)
-    r
+    match inst with
+    | In1 | In2 -> 0
+    | Ini1 -> !ini1
+    | Ini2 -> !ini2
+    | Dup -> f (pred v)
+    | Xor ->
+      let ps = G.pred t.g v in
+      begin
+        match List.length ps with
+        | 1 -> f (List.hd_exn ps)
+        | 2 ->
+          let l = List.map ps ~f in
+          max (List.nth_exn l 0) (List.nth_exn l 1)
+        | _ -> assert false
+      end
+    | Tbc -> (f (pred v)) + 1
+    | Fin1 | Fin2 | Out1 | Out2 -> f (pred v)
   in
   let run_f l val1 val2 =
     ini1 := val1; ini2 := val2;
@@ -588,7 +610,6 @@ let is_parallel t strict ~simple =
       let cost = max (List.nth_exn r 0) (List.nth_exn r 1) in
       cost <= maxcost
   | Tag -> assert false
-
 
 
 (* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
