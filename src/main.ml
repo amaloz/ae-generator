@@ -70,6 +70,8 @@ let spec_check =
     ~doc:" Check if given mode is (weakly) parallelizable"
   +> flag "-strong" no_arg
     ~doc:" Use strong parallelizability check"
+  +> flag "-forward" no_arg
+    ~doc:  "Check if TBC calls use only the forward direction"
   +> flag "-cost" (optional int)
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
@@ -78,7 +80,7 @@ let spec_check =
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode decode tag check display eval file parallel strong cost save simple debug () =
+let run_check mode decode tag check display eval file parallel strong forward cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -89,21 +91,27 @@ let run_check mode decode tag check display eval file parallel strong cost save 
         | Some block, None ->
           let tag = if simple then default_tag_simple else default_tag in
           Ok (AeModes.create block tag)
-        | None, _ -> Or_error.error_string "Encode algorithm is missing."
+        | None, _ -> Or_error.error_string "Encode algorithm is missing"
       end
+  in
+  let check_parallel mode =
+    if AeGraph.is_parallel mode.encode strong ~simple
+       && AeGraph.is_parallel mode.decode strong ~simple
+    then Ok ()
+    else Or_error.errorf "Not %s parallelizable"
+        (if strong then "strongly" else "weakly")
+  in
+  let check_forward mode =
+    if AeGraph.check_direction mode.encode then Ok ()
+    else Or_error.errorf "Uses backward direction of TBC"
   in
   let fcheck mode =
     let f g = AeGraph.is_secure g ~simple in
-    f mode.encode >>= fun () ->
-    f mode.decode >>= fun () ->
-    f mode.tag    >>= fun () ->
-    if parallel then
-      if AeGraph.is_parallel mode.encode strong ~simple
-         && AeGraph.is_parallel mode.decode strong ~simple
-      then Ok ()
-      else Or_error.errorf "Not %s parallelizable."
-          (if strong then "strongly" else "weakly")
-    else Ok ()
+    f mode.encode                                     >>= fun () ->
+    f mode.decode                                     >>= fun () ->
+    f mode.tag                                        >>= fun () ->
+    (if parallel then check_parallel mode else Ok ()) >>= fun () ->
+    (if forward then check_forward mode else Ok ())
   in
   (* let fmisuse mode = *)
   (*   if check then *)

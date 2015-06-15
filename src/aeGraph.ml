@@ -254,6 +254,16 @@ let eval t ~simple ~msg1 ~msg2 =
 
 exception Unreversable of string
 
+(* Find a vertex in 'g' with mark 'mark' *)
+let find_vertex g mark =
+  let f v = function
+    | Some _ as a -> a
+    | None -> if G.Mark.get v = mark then Some v else None
+  in
+  match G.fold_vertex f g None with
+  | Some v -> v
+  | None -> raise Not_found
+
 let reverse t =
   Lgr.info "Reversing %s graph" (string_of_phase t.phase);
   G.Mark.clear t.g;
@@ -268,16 +278,6 @@ let reverse t =
     | Out1 -> In1
     | Out2 -> In2
     | _ as i -> i
-  in
-  (* Find a vertex in 'g' with mark 'mark' *)
-  let find_vertex g mark =
-    let f v = function
-      | Some _ as a -> a
-      | None -> if G.Mark.get v = mark then Some v else None
-    in
-    match G.fold_vertex f g None with
-    | Some v -> v
-    | None -> raise Not_found
   in
   (* marked nodes are colored "red" and unmarked nodes are colored "blue" *)
   let mark v =
@@ -394,10 +394,22 @@ let reverse t =
   in
   try
     loop vs;
-    G.Mark.clear g;
     Ok { g; phase; checks }
   with Unreversable err ->
     Or_error.errorf "Cannot derive encode graph: %s" err
+
+let check_direction t =
+  assert (t.phase = Encode);
+  let t' = reverse t |> ok_exn in
+  let tbcs = find_all_vertices_by_inst t.g Tbc in
+  let f v =
+    let p = G.pred t.g v |> List.hd_exn in
+    let v' = find_vertex t'.g (G.Mark.get v) in
+    let p' = G.pred t'.g v' |> List.hd_exn in
+    assert (G.Mark.get v = G.Mark.get v');
+    G.Mark.get p = G.Mark.get p'
+  in
+  List.for_all tbcs ~f
 
 (* Checks that there exists paths between IN nodes and their associated OUT
    nodes *)
