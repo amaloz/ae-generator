@@ -39,10 +39,12 @@ let counts_simple = [
 
 (* everything but the leaf operations *)
 let ops = List.append initial [
-  Op (Inst Dup); Op(Inst Xor); Op(Inst Tbc);
-  Op (StackInst Swap); Op (StackInst Twoswap);
-  SynthInst Terminal
-]
+    Op (Inst Dup); Op(Inst Xor); Op(Inst Tbc);
+    Op (StackInst Swap); Op (StackInst Twoswap);
+    SynthInst Terminal
+  ]
+
+let try_count = ref 0
 
 let is_valid ~simple block =
   let opeq x y = Op (Inst x) = y in
@@ -82,18 +84,16 @@ let remove_dups blocks ~simple =
     | _ -> assert false in
   let table = String.Table.create () ~size:1024 in
   let f block =
-    let encode = AeGraph.create block Encode |> ok_exn in
+    let decode = AeGraph.create block Decode |> ok_exn in
+    let encode = AeGraph.reverse decode |> ok_exn in
+    (* let encode = AeGraph.create block Encode |> ok_exn in *)
     let r = AeGraph.eval encode ~simple ~msg1 ~msg2 in
-    let r' = swap r in
     let s = AeGraph.eval encode ~simple ~msg1:msg2 ~msg2:msg1 in
-    let s' = swap s in
-    Lgr.info "Decode: %s" (string_of_op_list block);
     let tmp = String.Table.create () ~size:1024 in
     let add l =
       let s = String.concat ~sep:" " l in
-      Lgr.info "%s" s;
       ignore (Hashtbl.add tmp ~key:s ~data:s) in
-    add r; add r'; add s; add s';
+    add r; add (swap r); add s; add (swap s);
     let b = Hashtbl.fold tmp ~init:true ~f:(fun ~key ~data c ->
         if c then
           match Hashtbl.add table ~key ~data with
@@ -133,25 +133,25 @@ let start_perms_simple = permutations [Inst Ini1; Inst In1; Inst In2]
 let term_perms = permutations [Inst Fin1; Inst Fin2; Inst Out1; Inst Out2]
 let term_perms_simple = permutations [Inst Fin1; Inst Out1; Inst Out2]
 
-let try_count = ref 0
-
 let process block ~simple =
   let process block =
     Lgr.info "Trying %s" (string_of_op_list block);
+    try_count := !try_count + 1;
     let open Or_error.Monad_infix in
     AeGraph.create block Decode      >>= fun decode ->
     AeGraph.check_paths decode       >>= fun () ->
-    AeGraph.reverse decode ~simple   >>= fun encode ->
-    AeGraph.is_secure encode ~simple >>= fun () ->
-    AeGraph.is_secure decode ~simple >>| fun () ->
+    AeGraph.is_secure decode ~simple >>= fun () ->
+    AeGraph.reverse decode           >>= fun encode ->
+    AeGraph.is_secure encode ~simple >>| fun () ->
+
     (* AeGraph.create block Encode      >>= fun encode -> *)
     (* AeGraph.check_paths encode       >>= fun () -> *)
+    (* AeGraph.reverse encode           >>= fun decode -> *)
     (* AeGraph.is_secure encode ~simple >>= fun () -> *)
-    (* AeGraph.reverse encode ~simple   >>= fun decode -> *)
-    (* AeGraph.check_paths decode       >>= fun () -> *)
     (* AeGraph.is_secure decode ~simple >>| fun () -> *)
+
     Lgr.info "Secure: %s" (string_of_op_list block);
-    printf "%s\n%!" (string_of_op_list block);
+    (* printf "%s\n%!" (string_of_op_list block); *)
     block
   in
   (* Replace terminal nodes with leaf nodes *)
@@ -172,7 +172,6 @@ let process block ~simple =
     | [] -> []
   in
   Lgr.info "Trying [%s]" (string_of_synth_op_list block);
-  try_count := !try_count + 1;
   let starts, terms =
     if simple then start_perms_simple, term_perms_simple
     else start_perms, term_perms
@@ -197,12 +196,14 @@ let rec fold ~simple ~maxsize ~depth ~ninputs ~block ~counts acc op =
       | None -> false
     in
     if not skip then
-      if n_in op <= ninputs && not (is_pruneable op block) then
-        let counts = match count with
-          | Some c -> List.Assoc.add counts op (c - 1)
-          | None -> counts
-        in
-        loop ~simple ~maxsize ~depth:(depth - 1) ~ninputs:n ~block:(op :: block) ~counts acc
+      if n_in op <= ninputs then
+        if not (is_pruneable op block) then
+          let counts = match count with
+            | Some c -> List.Assoc.add counts op (c - 1)
+            | None -> counts
+          in
+          loop ~simple ~maxsize ~depth:(depth - 1) ~ninputs:n ~block:(op :: block) ~counts acc
+        else acc
       else acc
     else acc
   else acc
@@ -218,7 +219,7 @@ and loop ~simple ~maxsize ~depth ~ninputs ~block ~counts acc =
     List.fold ops ~init:acc ~f:(fold ~simple ~maxsize ~depth ~ninputs ~block ~counts)
   | _ -> acc
 
-let gen ~simple ~print size =
+let synth ~simple ~print size =
   let counts = if simple then counts_simple else counts in
   let f acc op = 
     let blocks = fold ~simple ~maxsize:size ~depth:size ~ninputs:0 ~block:[]

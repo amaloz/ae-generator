@@ -1,74 +1,90 @@
-open AeOps
-open Core.Std
+open AeInclude
 
 type t = { block : op list; tag : op list }
 
-(* XXX: FIX THESE AS THEY ARE NOW ENCODE RATHER THAN DECODE *)
-
 let ccm = {
-  block = [];
-    (* "INI1 DUP DUP FIN1 TBC IN1 DUP XOR OUT1 INI2 XOR TBC SWAP IN2 DUP 2SWAP TBC XOR OUT2 XOR FIN2"; *)
-  (* "INI2 DUP DUP FIN2 TBC IN2 XOR DUP OUT2 SWAP TBC IN1 XOR DUP OUT1 INI1 XOR TBC XOR TBC FIN1"; *)
-  tag =
-    [Inst Ini1; Inst Tbc; Inst Ini2; Inst Xor; Inst Out1];
-    (* "INI1 TBC OUT1 INI2" *)
+  (* "INI2 DUP DUP FIN2 TBC IN2 XOR DUP OUT2 SWAP TBC IN1 XOR DUP OUT1 INI1 XOR TBC XOR TBC FIN1" *)
+  block = [Inst Ini2; Inst Dup; Inst Dup; Inst Fin2; Inst Tbc; Inst In2;
+           Inst Xor; Inst Dup; Inst Out2; StackInst Swap; Inst Tbc; Inst In1;
+           Inst Xor; Inst Dup; Inst Out1; Inst Ini1; Inst Xor; Inst Tbc;
+           Inst Xor; Inst Tbc; Inst Fin1];
+  (* "INI1 TBC OUT1 INI2" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2];
 }
 
 let copa = {
-  block = [];
-  (* "IN1 TBC INI2 XOR DUP TBC DUP OUT1 INI1 XOR SWAP IN2 TBC XOR DUP FIN2 TBC DUP OUT2 XOR FIN1"; *)
-  tag = [];
-    (* "INI1 TBC INI2 XOR TBC OUT1" *)
+  (* "IN1 TBC INI2 XOR DUP TBC DUP OUT1 INI1 XOR SWAP IN2 TBC XOR DUP FIN2 TBC DUP OUT2 XOR FIN1" *)
+  block = [Inst In1; Inst Tbc; Inst Ini2; Inst Xor; Inst Dup; Inst Tbc; Inst Dup;
+           Inst Out1; Inst Ini1; Inst Xor; StackInst Swap; Inst In2; Inst Tbc;
+           Inst Xor; Inst Dup; Inst Fin2; Inst Tbc; Inst Dup; Inst Out2;
+           Inst Xor; Inst Fin1];
+  (* "INI1 TBC INI2 XOR TBC OUT1" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Ini2; Inst Xor; Inst Tbc; Inst Out1];
 }
 
 let copa2_s = {
-  block = [];
-    (* "IN1 TBC INI1 XOR DUP TBC OUT1 IN2 TBC XOR DUP TBC OUT2 FIN1"; *)
-  tag = [];
-    (* "INI1 TBC OUT1" *)
+  (* "IN1 TBC INI1 XOR DUP TBC OUT1 IN2 TBC XOR DUP TBC OUT2 FIN1" *)  
+  block = [Inst In1; Inst Tbc; Inst Ini1; Inst Xor; Inst Dup; Inst Tbc;
+           Inst Out1; Inst In2; Inst Tbc; Inst Xor; Inst Dup; Inst Tbc;
+           Inst Out2; Inst Fin1];
+  (* "INI1 TBC OUT1" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1];
 }
 
 let ocb = {
-  block = [];
-    (* "INI1 IN1 DUP TBC OUT1 XOR IN2 DUP TBC OUT2 XOR FIN1 INI2 FIN2"; *)
-  tag = [];
-    (* "INI1 TBC OUT1 INI2" *)
+  (* "INI1 INI2 FIN2 IN1 TBC DUP OUT1 XOR IN2 TBC DUP OUT2 XOR FIN1" *)
+  block = [Inst Ini1; Inst Ini2; Inst Fin2; Inst In1; Inst Tbc; Inst Dup;
+           Inst Out1; Inst Xor; Inst In2; Inst Tbc; Inst Dup; Inst Out2;
+           Inst Xor; Inst Fin1];
+  (* "INI1 TBC OUT1 INI2" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2];
 }
 
 let ocb_s = {
-  block = [];
-    (* "INI1 IN1 DUP TBC OUT1 XOR IN2 DUP TBC OUT2 XOR FIN1"; *)
-  tag = [];
-    (* "INI1 TBC OUT1" *)
+  (* "INI1 INI2 FIN2 IN1 TBC DUP OUT1 XOR IN2 TBC DUP OUT2 XOR FIN1" *)
+  block = [Inst Ini1;Inst In1; Inst Tbc; Inst Dup; Inst Out1; Inst Xor; Inst In2;
+           Inst Tbc; Inst Dup; Inst Out2; Inst Xor; Inst Fin1];
+  (* "INI1 TBC OUT1" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1];
 }
 
 let otr = {
-  block = [];
-    (* "IN2 DUP TBC IN1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1 INI2 FIN2"; *)
-  tag = [];
-    (* "INI1 TBC OUT1 INI2" *)
+  (* "IN2 DUP TBC IN1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1 INI2 FIN2" *)
+  block = [Inst In2; Inst Dup; Inst Tbc; Inst In1; Inst Xor; Inst Dup; Inst Dup;
+           Inst Out1; Inst Ini1; Inst Xor; StackInst Twoswap; StackInst Swap;
+           Inst Tbc; Inst Xor; Inst Dup; Inst Out2; Inst Xor; Inst Fin1;
+           Inst Ini2; Inst Fin2];
+  (* "INI1 TBC OUT1 INI2" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2];
+
 }
 
 let otr2_s = {
-  block = [];
-    (* "IN2 DUP TBC IN1 XOR DUP OUT1 TBC XOR DUP OUT2 INI1 XOR FIN1"; *)
-  tag = [];
-    (* "INI1 TBC OUT1" *)
+  (* "IN2 DUP TBC IN1 XOR DUP OUT1 TBC XOR DUP OUT2 INI1 XOR FIN1" *)
+  block = [Inst In2; Inst Dup; Inst Tbc; Inst In1; Inst Xor; Inst Dup; Inst Out1;
+           Inst Tbc; Inst Xor; Inst Dup; Inst Out2; Inst Ini1; Inst Xor;
+           Inst Fin1];
+  (* "INI1 TBC OUT1" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1];
 }
 
 let otr_s = {
-  block = [];
-    (* "IN2 DUP TBC IN1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1"; *)
-  tag = [];
-    (* "INI1 TBC OUT1" *)
+  (* "IN2 DUP TBC IN1 XOR DUP DUP OUT1 INI1 XOR 2SWAP SWAP TBC XOR DUP OUT2 XOR FIN1" *)
+  block = [Inst In2; Inst Dup; Inst Tbc; Inst In1; Inst Xor; Inst Dup; Inst Dup;
+           Inst Out1; Inst Ini1; Inst Xor; StackInst Twoswap; StackInst Swap;
+           Inst Tbc; Inst Xor; Inst Dup; Inst Out2; Inst Xor; Inst Fin1];
+  (* "INI1 TBC OUT1" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1];
 }
 
 let xcbc = {
-  block = [];
-    (* "INI1 IN1 DUP XOR IN2 DUP XOR FIN1 SWAP INI2 XOR TBC DUP OUT1 XOR TBC DUP OUT2 FIN2"; *)
-    (* "INI1 INI2 IN1 DUP IN2 DUP FIN2 TBC XOR DUP OUT2 2SWAP SWAP TBC XOR DUP OUT1 2SWAP XOR XOR FIN1"; *)
-  tag = [];
-    (* "INI1 TBC OUT1 INI2" *)
+  (* "INI1 INI2 IN1 DUP IN2 DUP FIN2 TBC XOR DUP OUT2 2SWAP SWAP TBC XOR DUP OUT1 2SWAP XOR XOR FIN1" *)
+  block = [Inst Ini1; Inst Ini2; Inst In1; Inst Dup; Inst In2; Inst Dup;
+           Inst Fin2; Inst Tbc; Inst Xor; Inst Dup; Inst Out2; StackInst Twoswap;
+           StackInst Swap; Inst Tbc; Inst Xor; Inst Dup; Inst Out1;
+           StackInst Twoswap; Inst Xor; Inst Xor; Inst Fin1];
+  (* "INI1 TBC OUT1 INI2" *)
+  tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2];
 }
 
 let modes =

@@ -1,6 +1,19 @@
 open AeInclude
 
+let version = "0.1"
+
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
+
+let set_log_level n =
+  let level = match n with
+    | 0 -> Lgr.FATAL
+    | 1 -> Lgr.ERROR
+    | 2 -> Lgr.WARN
+    | 3 -> Lgr.INFO
+    | _ -> Lgr.DEBUG
+  in
+  Lgr.set_log_level level;
+  Lgr.color_on ()
 
 let default_tag = [Inst Ini1; Inst Tbc; Inst Out1; Inst Ini2]
 let default_tag_simple = [Inst Ini1; Inst Tbc; Inst Out1]
@@ -24,8 +37,7 @@ let scheme =
       match AeInst.from_string_block s with
       | Ok block -> block
       | Error err ->
-        let _ = eprintf "%s" (Error.to_string_hum err) in exit 1
-    )
+        let _ = eprintf "%s" (Error.to_string_hum err) in exit 1)
 
 let spec_common =
   let open Command.Spec in
@@ -40,8 +52,10 @@ let spec_check =
   empty
   +> flag "-mode" (optional mode)
     ~doc:(sprintf "M Load mode M (Available modes: %s)" AeModes.modes_string)
-  +> flag "-encode" (optional scheme)
-    ~doc:"A Sets A to be the encode block"
+  (* +> flag "-encode" (optional scheme) *)
+  (*   ~doc:"A Sets A to be the encode block" *)
+  +> flag "-decode" (optional scheme)
+    ~doc:"A Sets A to be the decode block"
   +> flag "-tag" (optional scheme)
     ~doc:"A Sets A to be the tag block"
   +> flag "-check" no_arg
@@ -64,13 +78,13 @@ let spec_check =
   (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
-let run_check mode encode tag check display eval file parallel strong cost save simple debug () =
+let run_check mode decode tag check display eval file parallel strong cost save simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
     | Some mode -> Ok mode
     | None -> begin
-        match encode, tag with
+        match decode, tag with
         | Some block, Some tag -> Ok (AeModes.create block tag)
         | Some block, None ->
           let tag = if simple then default_tag_simple else default_tag in
@@ -116,10 +130,21 @@ let run_check mode encode tag check display eval file parallel strong cost save 
       AeInst.validate block phase ~simple >>= fun () ->
       AeGraph.create block phase
     in
-    f (AeModes.block mode) Encode   >>= fun encode ->
-    f (AeModes.tag mode) Tag        >>= fun tag ->
-    AeGraph.reverse encode ~simple  >>= fun decode ->
-    let mode = { encode = encode; decode = decode; tag = tag } in
+    begin
+      (* if Option.is_some decode then *)
+      f (AeModes.block mode) Decode >>= fun decode ->
+      f (AeModes.tag mode) Tag      >>= fun tag ->
+      AeGraph.reverse decode        >>| fun encode ->
+      encode, decode, tag
+      (* else *)
+      (* XXX: right now this branch isn't being used, but could be useful
+         if/when we can take encode algs as input *)
+      (* f (AeModes.block mode) Encode >>= fun encode -> *)
+      (* f (AeModes.tag mode) Tag      >>= fun tag -> *)
+      (* AeGraph.reverse encode        >>| fun decode -> *)
+      (* encode, decode, tag *)
+    end                               >>= fun (encode, decode, tag) ->
+    let mode = { encode; decode; tag } in
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
     begin if eval then feval mode else Ok () end
@@ -150,7 +175,7 @@ let run_check mode encode tag check display eval file parallel strong cost save 
     in
     let f ic = In_channel.fold_lines ic ~init:(0, []) ~f:fold in
     let total, blocks = In_channel.with_file file ~f in
-    let blocks = AeGeneration.remove_dups blocks ~simple in
+    let blocks = AeSynth.remove_dups blocks ~simple in
     let unique = List.length blocks in
     if check || display || eval then
       let minsize = ref Int.max_value in
@@ -185,16 +210,14 @@ let run_check mode encode tag check display eval file parallel strong cost save 
   in
   let run () =
     begin
-      if check || display || eval then
-        Ok ()
-      else
-        Or_error.error_string "One of -check, -display, -eval must be used"
+      if check || display || eval then Ok ()
+      else Or_error.error_string "One of -check, -display, -eval must be used"
     end >>= fun () ->
     match file with
     | Some file -> read_file file
     | None -> get_mode mode >>= fun mode ->
       run_mode mode         >>| fun () ->
-      printf "%s\n%!" (AeModes.block mode |> string_of_op_list)
+      printf "Ok: %s\n%!" (AeModes.block mode |> string_of_op_list)
   in
   begin
     match run () with
@@ -214,7 +237,7 @@ let spec_synth =
 
 let run_synth size print simple debug () =
   set_log_level debug;
-  let _ = AeGeneration.gen ~simple ~print size in
+  let _ = AeSynth.synth ~simple ~print size in
   ()
 
 let check =
@@ -243,4 +266,7 @@ let command =
     ~summary:"Authenticated encryption scheme prover/synthesizer."
     ["check", check; "synth", synth]
 
-let _ = start command
+let _ =
+  Exn.handle_uncaught ~exit:true (fun () ->
+      Command.run ~version:version command
+    )

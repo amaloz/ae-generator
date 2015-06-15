@@ -12,6 +12,7 @@ let string_of_typ = function
   | Bot -> "⊥"
   | Rand -> "$"
 
+(* 'array' is used to avoid the issue detailed in Fig. 3.8 in the paper. *)
 type map = { typ : typ; ctr : int; array : int array }
 
 module V = struct
@@ -36,7 +37,8 @@ let string_of_e e =
 
 let full_string_of_v v =
   let _, map = G.V.label v in
-  [string_of_typ !map.typ; Int.to_string !map.ctr; Array.to_list !map.array |> List.to_string ~f:Int.to_string]
+  [string_of_typ !map.typ; Int.to_string !map.ctr;
+   Array.to_list !map.array |> List.to_string ~f:Int.to_string]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
@@ -69,9 +71,9 @@ let create block phase =
   let g = G.create () in
   let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
   let fchecks = function
-    | Encode -> (fun i dst acc -> if i = Out1 || i = Out2 then dst :: acc else acc)
-    | Decode -> (fun i dst acc -> if i = Fin1 then [dst] else acc)
-    | Tag -> (fun i dst acc -> if i = Out1 then [dst] else acc)
+    | Encode -> (fun i x acc -> if i = Out1 || i = Out2 then x :: acc else acc)
+    | Decode -> (fun i x acc -> if i = Fin1 then [x] else acc)
+    | Tag -> (fun i x acc -> if i = Out1 then [x] else acc)
   in
   let fchecks = fchecks phase in
   let rec pop ~dst ~op = function
@@ -94,10 +96,6 @@ let create block phase =
       push (AeInst.n_out op) ~dst   >>= fun () ->
       acc                           >>| fun acc ->
       fchecks i dst acc
-      (* if phase = Encode && (i = Out1 || i = Out2) then dst :: acc *)
-      (* else if phase = Decode && i = Fin1 then [dst] *)
-      (* else if phase = Tag && i = Out1 then [dst] *)
-      (* else acc *)
     | StackInst i ->
       let open Option.Monad_infix in
       let result = match i with
@@ -254,18 +252,24 @@ let eval t ~simple ~msg1 ~msg2 =
   | Tag ->
     find_vertex_by_inst t.g Out1 |> f |> (fun x -> [x])
 
-exception Unencryptable of string
+exception Unreversable of string
 
-let reverse t ~simple =
+let reverse t =
   Lgr.info "Reversing %s graph" (string_of_phase t.phase);
-  let g = G.create () in
-  let map_inst = function
+  G.Mark.clear t.g;
+  let phase = match t.phase with
+    | Encode -> Decode
+    | Decode -> Encode
+    | Tag -> assert false
+  in
+  let inst_map = function
     | In1 -> Out1
     | In2 -> Out2
     | Out1 -> In1
     | Out2 -> In2
     | _ as i -> i
   in
+  (* Find a vertex in 'g' with mark 'mark' *)
   let find_vertex g mark =
     let f v = function
       | Some _ as a -> a
@@ -275,125 +279,134 @@ let reverse t ~simple =
     | Some v -> v
     | None -> raise Not_found
   in
+  (* marked nodes are colored "red" and unmarked nodes are colored "blue" *)
   let mark v =
     (* XXX: This'll break for graphs with >= 1000 nodes. *)
     assert (G.Mark.get v <= 1000);
     G.Mark.set v (G.Mark.get v + 1000) in
   let is_marked v = G.Mark.get v > 1000 in
+  let g = G.create () in
   let fchecks = function
     | Encode -> (fun inst v acc ->
-        match map_inst inst with
-        | Fin1 -> v :: acc
-        | Fin2 -> if simple then acc else v :: acc
+        match inst with
+        | Out1 | Out2 -> v :: acc
         | _ -> acc)
     | Decode -> (fun inst v acc ->
-        match map_inst inst with
-        | Out1 | Out2 -> v :: acc
+        match inst with
+        | Fin1 | Fin2 -> v :: acc
         | _ -> acc)
     | Tag -> failwith "Fatal: Tag graph cannot be reversed"
   in
-  let fchecks = fchecks t.phase in
+  let fchecks = fchecks phase in
   let f v (ctr, vs, checks) =
     let inst, _ = G.V.label v in
-    let v' = G.V.create (map_inst inst, ref { typ = Bot; ctr = 0; array = [||] }) in
+    let v' = G.V.create (inst_map inst, ref { typ = Bot; ctr = 0; array = [||] }) in
+    let inst', _ = G.V.label v' in
     G.add_vertex g v';
     (* Give each vertex a unique mark, and make the two marks equal in both the
        old graph and the new graph, so that we can locate the same nodes between
        the two graphs. *)
     G.Mark.set v ctr;
     G.Mark.set v' ctr;
-    let checks = fchecks inst v' checks in
-    (* let checks = *)
-    (*   if t.phase = Decode then *)
-    (*     match map_inst inst with *)
-    (*     | Out1 | Out2 -> v' :: checks *)
-    (*     | _ -> checks *)
-    (*   else *)
-    (*     match map_inst inst with *)
-    (*     | Fin1 -> v' :: checks *)
-    (*     | Fin2 -> if simple then checks else v' :: checks *)
-    (*     | _ -> checks *)
-    match inst with
-    | Out1 | Out2 | Ini1 | Ini2 ->
+    let checks = fchecks inst' v' checks in
+    match inst' with
+    | In1 | In2 | Ini1 | Ini2 ->
       mark v; mark v'; (ctr + 1, vs, checks)
     | _ -> (ctr + 1, v :: vs, checks)
   in
+  (* Create initial copy graph containing all the vertices but no edges yet. *)
+  (* "vs" is the list we iterate over until empty or a fixed point is reached. *)
+  (* "checks" are the vertices to be checked when verifying
+     privacy/authenticity. *)
   let _, vs, checks = G.fold_vertex f t.g (1, [], []) in
-  let f acc v =
-    let neighbors v = List.append (G.succ t.g v) (G.pred t.g v) in
-    let add_edge src dst =
-      let e = G.E.create src () dst in G.add_edge_e g e in
-    let add_edge_and_mark v src dst acc =
-      add_edge src dst; mark v; mark dst; acc in
-    let of_bool b = if b then 1 else 0 in
-    let vs = neighbors v |> List.to_array in
-    let v_new = find_vertex g (G.Mark.get v) in
+  let fold acc v =
+    let add_edge src dst = let e = G.E.create src () dst in G.add_edge_e g e in
+    let add_edge_and_mark src dst v =
+      add_edge src dst; mark dst; mark v in
+    let neighbors = List.append (G.succ t.g v) (G.pred t.g v) |> List.to_array in
+    let v' = find_vertex g (G.Mark.get v) in
     let inst, _ = G.V.label v in
     match inst with
     | In1 | In2 | Fin1 | Fin2 ->
-      let v' = vs.(0) in
-      let v'_new = find_vertex g (G.Mark.get v') in
-      if is_marked v'_new then add_edge_and_mark v v'_new v_new acc
+      assert (Array.length neighbors = 1);
+      let n = neighbors.(0) in
+      let n' = find_vertex g (G.Mark.get n) in
+      if is_marked n' then (add_edge_and_mark n' v' v; acc)
       else v :: acc
     | Tbc ->
-      let v1, v2 = vs.(0), vs.(1) in
-      let v1_new = find_vertex g (G.Mark.get v1) in
-      let v2_new = find_vertex g (G.Mark.get v2) in
-      if is_marked v1_new && is_marked v2_new then
-        raise (Unencryptable "TBC: Both vertices marked")
-      else if is_marked v1_new then add_edge_and_mark v v1_new v_new acc
-      else if is_marked v2_new then add_edge_and_mark v v2_new v_new acc
-      else v :: acc
+      assert (Array.length neighbors = 2);
+      let n1, n2 = neighbors.(0), neighbors.(1) in
+      let n1' = find_vertex g (G.Mark.get n1) in
+      let n2' = find_vertex g (G.Mark.get n2) in
+      begin
+        match is_marked n1', is_marked n2' with
+        | true, true -> raise (Unreversable "TBC: Both vertices marked")
+        | true, false -> add_edge_and_mark n1' v' v; acc
+        | false, true -> add_edge_and_mark n2' v' v; acc
+        | false, false -> v :: acc
+      end
     | Dup ->
-      if Array.length vs = 2 then
-        raise (Unencryptable "DUP: Only one outgoing edge")
+      if Array.length neighbors <> 3 then
+        raise (Unreversable "DUP: Only one outgoing edge")
       else
-        let v1, v2, v3 = vs.(0), vs.(1), vs.(2) in
-        let v1_new = find_vertex g (G.Mark.get v1) in
-        let v2_new = find_vertex g (G.Mark.get v2) in
-        let v3_new = find_vertex g (G.Mark.get v3) in
-        let cnt = (is_marked v1_new |> of_bool)
-                  + (is_marked v2_new |> of_bool)
-                  + (is_marked v3_new |> of_bool) in
-        if cnt > 1 then raise (Unencryptable "DUP: More than one vertex marked")
-        else if is_marked v1_new then add_edge_and_mark v v1_new v_new acc
-        else if is_marked v2_new then add_edge_and_mark v v2_new v_new acc
-        else if is_marked v3_new then add_edge_and_mark v v3_new v_new acc
-        else v :: acc
+        let n1, n2, n3 = neighbors.(0), neighbors.(1), neighbors.(2) in
+        let n1' = find_vertex g (G.Mark.get n1) in
+        let n2' = find_vertex g (G.Mark.get n2) in
+        let n3' = find_vertex g (G.Mark.get n3) in
+        begin
+          match is_marked n1', is_marked n2', is_marked n3' with
+          | true, true, true | true, true, false
+          | true, false, true | false, true, true ->
+            raise (Unreversable "DUP: More than one vertex marked")
+          | true, false, false -> add_edge_and_mark n1' v' v; acc
+          | false, true, false -> add_edge_and_mark n2' v' v; acc
+          | false, false, true -> add_edge_and_mark n3' v' v; acc
+          | false, false, false -> v :: acc
+        end
     | Xor ->
-      if Array.length vs = 2 then
-        raise (Unencryptable "XOR: Only one incoming edge")
+      if Array.length neighbors <> 3 then
+        raise (Unreversable "XOR: Only one incoming edge")
       else
-        let v1, v2, v3 = vs.(0), vs.(1), vs.(2) in
-        let v1_new = find_vertex g (G.Mark.get v1) in
-        let v2_new = find_vertex g (G.Mark.get v2) in
-        let v3_new = find_vertex g (G.Mark.get v3) in
-        let cnt = (is_marked v1_new |> of_bool)
-                  + (is_marked v2_new |> of_bool)
-                  + (is_marked v3_new |> of_bool) in
-        if cnt = 3 then raise (Unencryptable "XOR: Too many vertices marked")
-        else if cnt = 2 then begin
-          if is_marked v1_new then add_edge v1_new v_new;
-          if is_marked v2_new then add_edge v2_new v_new;
-          if is_marked v3_new then add_edge v3_new v_new;
-          mark v; mark v_new; acc
-        end else v :: acc
-    | Ini1 | Ini2 | Out1 | Out2 -> assert false
+        let n1, n2, n3 = neighbors.(0), neighbors.(1), neighbors.(2) in
+        let n1' = find_vertex g (G.Mark.get n1) in
+        let n2' = find_vertex g (G.Mark.get n2) in
+        let n3' = find_vertex g (G.Mark.get n3) in
+        begin
+          match is_marked n1', is_marked n2', is_marked n3' with
+          | true, true, true ->
+            raise (Unreversable "XOR: More than two vertices marked")
+          | true, true, false -> add_edge n1' v'; add_edge_and_mark n2' v' v; acc
+          | true, false, true -> add_edge n1' v'; add_edge_and_mark n3' v' v; acc
+          | false, true, true -> add_edge n2' v'; add_edge_and_mark n3' v' v; acc
+          | _, _, _ -> v :: acc
+        end
+    | Out1 | Out2 | Ini1 | Ini2 -> assert false
   in
+  (* Loop over list until empty or fixed point reached *)
   let rec loop l =
     if not (List.is_empty l) then begin
       Lgr.debug "Looping over %s" (List.to_string l ~f:string_of_v);
-      let l' = List.fold l ~init:[] ~f |> List.rev in
-      if l = l' then
-        raise (Unencryptable "Reached fixed point but list not empty");
+      let l' = List.fold l ~init:[] ~f:fold |> List.rev in
+      if List.length l = List.length l' then
+        raise (Unreversable "Reached fixed point but list not empty");
       loop l'
     end
   in
   try
     loop vs;
-    Ok { g; phase = (if t.phase = Encode then Decode else Encode); checks }
-  with Unencryptable err ->
+    G.Mark.clear g;
+    Ok { g; phase; checks }
+  with Unreversable err ->
     Or_error.errorf "Cannot derive encode graph: %s" err
+
+(* Checks that there exists paths between IN nodes and their associated OUT
+   nodes *)
+let check_paths t =
+  let c = Check.create t.g in
+  let f inst = find_vertex_by_inst t.g inst in
+  if Check.check_path c (f In1) (f Out1)
+     && Check.check_path c (f In2) (f Out2) then Ok ()
+  else Or_error.errorf "Redundant graph: Paths don't check out"
 
 (* Runs the Map function mapping nodes to (type, ctr) tuples *)
 let map t types rand ~simple =
@@ -429,7 +442,6 @@ let map t types rand ~simple =
     | Tbc ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
-      (* let array = Array.copy !pmap.array in *)
       let array = Array.init ntbc (fun _ -> 0) in
       Array.set array !i 1;
       i := !i + 1;
@@ -481,15 +493,6 @@ let check t types rand checks ~simple =
   | true -> Ok ()
   | false -> Or_error.errorf "Graph insecure on inputs %s"
                (List.to_string (Array.to_list types) ~f:string_of_typ)
-
-(* Checks that there exists paths between IN nodes and their associated OUT
-   nodes *)
-let check_paths t =
-  let c = Check.create t.g in
-  let f inst = find_vertex_by_inst t.g inst in
-  if Check.check_path c (f In1) (f Out1)
-     && Check.check_path c (f In2) (f Out2) then Ok ()
-  else Or_error.errorf "Redundant graph: Paths don't check out"
 
 let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
@@ -610,7 +613,6 @@ let is_parallel t strong ~simple =
       let cost = max (List.nth_exn r 0) (List.nth_exn r 1) in
       cost <= maxcost
   | Tag -> assert false
-
 
 (* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
 (*   let open Or_error.Monad_infix in *)
