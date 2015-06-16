@@ -151,7 +151,8 @@ let process block ~simple =
     (* AeGraph.is_secure decode ~simple >>| fun () -> *)
 
     Lgr.info "Secure: %s" (string_of_op_list block);
-    (* printf "%s\n%!" (string_of_op_list block); *)
+    (* Need this for synthesis if we kill execution before finishing *)
+    printf "%s\n%!" (string_of_op_list block);
     block
   in
   (* Replace terminal nodes with leaf nodes *)
