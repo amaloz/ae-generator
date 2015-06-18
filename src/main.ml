@@ -194,18 +194,18 @@ let run_check mode decode tag check display eval file parallel strong forward co
         let mode = AeModes.create block tag in
         match run_mode mode with
         | Ok () ->
-          printf "%s\n%!" (AeModes.to_string mode);
+          printf "%s\n%!" (string_of_op_list (AeModes.block mode));
           let size = List.length block in
           if size > !maxsize then maxsize := size;
           if size < !minsize then minsize := size;
           found := block :: !found;
           count + 1
         | Error err ->
-          eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err);
+          (* eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err); *)
           count
       in
       let secure = List.fold ~init:0 blocks ~f in
-      printf "Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
+      printf "# Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
       let count blocks size =
         List.count blocks (fun block -> List.length block = size)
       in
@@ -213,7 +213,7 @@ let run_check mode decode tag check display eval file parallel strong forward co
         printf "# modes of size %d = %d\n%!" i (count !found i)
       done;
     else
-      printf "Unique / Total: %d / %d\n%!" unique total;
+      printf "# Unique / Total: %d / %d\n%!" unique total;
     Ok ()
   in
   let run () =
