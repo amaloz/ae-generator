@@ -13,3 +13,4 @@ setup.log
 *.cmxa
 *.byte
 *.native
+*.txt
