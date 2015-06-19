@@ -78,8 +78,6 @@ let spec_check =
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
     ~doc:"FILE Save mode to FILE instead of displaying"
-  (* +> flag "-misuse" no_arg *)
-  (*   ~doc:" Check if given mode is misuse resistant" *)
   ++ spec_common
 
 let run_check mode encode decode tag check display eval dec_file enc_file
@@ -145,12 +143,6 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     f mode.decode >>= fun () ->
     f mode.tag
   in
-  (* let fmisuse mode = *)
-  (*   if check then *)
-  (*     AeGraph.is_misuse_resistant mode.encode mode.decode mode.tag ~simple *)
-  (*   else *)
-  (*     Or_error.errorf "-misuse must be used in conjunction with -check" *)
-  (* in *)
   let feval mode =
     let msg1, msg2 = AeGraph.msg1, AeGraph.msg2 in
     let eval mode =
