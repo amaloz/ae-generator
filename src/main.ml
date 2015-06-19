@@ -126,13 +126,24 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     if AeGraph.check_direction mode.encode then Ok ()
     else Or_error.errorf "Uses backward direction of TBC"
   in
-  let fcheck mode =
-    let f g = AeGraph.is_secure g ~simple in
-    f mode.encode                                     >>= fun () ->
-    f mode.decode                                     >>= fun () ->
-    f mode.tag                                        >>= fun () ->
+  let check_cost mode =
+    match cost with
+    | None -> Ok ()
+    | Some cost ->
+      let cost' = AeGraph.count mode.encode Tbc in
+      if cost' <= cost then Ok ()
+      else Or_error.errorf "Cost too large (%d > %d)" cost' cost
+  in
+  let prune mode =
+    check_cost mode                                   >>= fun () ->
     (if parallel then check_parallel mode else Ok ()) >>= fun () ->
     (if forward then check_forward mode else Ok ())
+  in
+  let fcheck mode =
+    let f g = AeGraph.is_secure g ~simple in
+    f mode.encode >>= fun () ->
+    f mode.decode >>= fun () ->
+    f mode.tag
   in
   (* let fmisuse mode = *)
   (*   if check then *)
@@ -174,27 +185,20 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       | Tag -> assert false
     end                               >>= fun (encode, decode, tag) ->
     let mode = { encode; decode; tag } in
+    prune mode                                              >>= fun () ->
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
-  let check_cost block cost =
-    match cost with
-    | None -> Ok ()
-    | Some cost ->
-      let cost' = AeInst.count_inst block Tbc in
-      if cost' <= cost then Ok ()
-      else Or_error.errorf "Cost too large (%d > %d)" cost' cost
-  in
   let read_file file phase =
+    assert (check || display || eval);
     let fold (count, acc) line =
       if line = "" || String.contains ~pos:0 ~len:1 line '#' then (count, acc)
       else
         let parse line =
           let block = String.strip ~drop:(fun c -> c = '\n') line in
           AeInst.from_string_block block      >>= fun block ->
-          AeInst.validate block phase ~simple >>= fun () ->
-          check_cost block cost               >>| fun () ->
+          AeInst.validate block phase ~simple >>| fun () ->
           block
         in
         match parse line with
@@ -207,35 +211,33 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       | Encode -> true | Decode -> false | Tag -> assert false in
     let blocks = AeSynth.remove_dups blocks ~use_enc ~simple in
     let unique = List.length blocks in
-    if check || display || eval then
-      let minsize = ref Int.max_value in
-      let maxsize = ref 0 in
-      let found = ref [] in
-      let f count block =
-        let tag = if simple then default_tag_simple else default_tag in
-        let mode = AeModes.create block tag in
-        match run_mode mode phase with
-        | Ok () ->
-          printf "%s\n%!" (string_of_op_list (AeModes.block mode));
-          let size = List.length block in
-          if size > !maxsize then maxsize := size;
-          if size < !minsize then minsize := size;
-          found := block :: !found;
-          count + 1
-        | Error err ->
-          (* eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err); *)
-          count
-      in
-      let secure = List.fold ~init:0 blocks ~f in
-      printf "# Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
-      let count blocks size =
-        List.count blocks (fun block -> List.length block = size)
-      in
-      for i = !minsize to !maxsize do
-        printf "# modes of size %d = %d\n%!" i (count !found i)
-      done;
-    else
-      printf "# Unique / Total: %d / %d\n%!" unique total;
+
+    let minsize = ref Int.max_value in
+    let maxsize = ref 0 in
+    let found = ref [] in
+    let f count block =
+      let tag = if simple then default_tag_simple else default_tag in
+      let mode = AeModes.create block tag in
+      match run_mode mode phase with
+      | Ok () ->
+        printf "%s\n%!" (string_of_op_list (AeModes.block mode));
+        let size = List.length block in
+        if size > !maxsize then maxsize := size;
+        if size < !minsize then minsize := size;
+        found := block :: !found;
+        count + 1
+      | Error err ->
+        (* eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err); *)
+        count
+    in
+    let secure = List.fold ~init:0 blocks ~f in
+    printf "# Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
+    let count blocks size =
+      List.count blocks (fun block -> List.length block = size)
+    in
+    for i = !minsize to !maxsize do
+      printf "# modes of size %d = %d\n%!" i (count !found i)
+    done;
     Ok ()
   in
   let run () =
