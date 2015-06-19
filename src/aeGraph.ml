@@ -13,7 +13,7 @@ let string_of_typ = function
   | Rand -> "$"
 
 (* 'array' is used to avoid the issue detailed in Fig. 3.8 in the paper. *)
-type map = { typ : typ; ctr : int; array : int array }
+type map = { typ : typ; ctr : int; (* array : int array *) }
 
 module V = struct
   (* Each vertex contains two elements: the instruction the vertex represents
@@ -38,7 +38,7 @@ let string_of_e e =
 let full_string_of_v v =
   let _, map = G.V.label v in
   [string_of_typ !map.typ; Int.to_string !map.ctr;
-   Array.to_list !map.array |> List.to_string ~f:Int.to_string]
+   (* Array.to_list !map.array |> List.to_string ~f:Int.to_string *)]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
@@ -90,7 +90,7 @@ let create block phase =
   let f acc op =
     match op with
     | Inst i ->
-      let dst = G.V.create (i, ref { typ = Bot; ctr = 0; array = [||] }) in
+      let dst = G.V.create (i, ref { typ = Bot; ctr = 0; (* array = [||] *) }) in
       G.add_vertex g dst;
       pop (AeInst.n_in op) ~dst ~op >>= fun () ->
       push (AeInst.n_out op) ~dst   >>= fun () ->
@@ -300,7 +300,7 @@ let reverse t =
   let fchecks = fchecks phase in
   let f v (ctr, vs, checks) =
     let inst, _ = G.V.label v in
-    let v' = G.V.create (inst_map inst, ref { typ = Bot; ctr = 0; array = [||] }) in
+    let v' = G.V.create (inst_map inst, ref { typ = Bot; ctr = 0; (* array = [||] *) }) in
     let inst', _ = G.V.label v' in
     G.add_vertex g v';
     (* Give each vertex a unique mark, and make the two marks equal in both the
@@ -432,7 +432,7 @@ let map t types rand ~simple =
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
-      map := { typ; ctr = f typ; array = Array.init ntbc (fun _ -> 0) }
+      map := { typ; ctr = f typ; (* array = Array.init ntbc (fun _ -> 0) *) }
     in
     let l =
       match t.phase with
@@ -459,8 +459,8 @@ let map t types rand ~simple =
       i := !i + 1;
       if rand || !pmap.typ = One || !pmap.typ = Rand then begin
         max_ctr := !max_ctr + 1;
-        map := { typ = Rand; ctr = !max_ctr; array }
-      end else map := { typ = !pmap.typ; ctr = !pmap.ctr; array }
+        map := { typ = Rand; ctr = !max_ctr; (* array *) }
+      end else map := { typ = !pmap.typ; ctr = !pmap.ctr; (* array *) }
     | Xor ->
       let ps = G.pred t.g v in
       let p1, p2 =
@@ -472,7 +472,7 @@ let map t types rand ~simple =
       let p1map, p2map =
         if !p1map.ctr < !p2map.ctr then !p2map, !p1map else !p1map, !p2map in
       let _, map = G.V.label v in
-      let array = xor_array p1map.array p2map.array in
+      (* let array = xor_array p1map.array p2map.array in *)
       if (p1map.typ = Zero && p2map.typ = Zero)
       || (p1map.typ = Zero && p2map.typ = One)
       || (p1map.typ = One && p2map.typ = Zero) then
@@ -482,11 +482,11 @@ let map t types rand ~simple =
         | Zero, One | One, Zero -> One
         | _ , _ -> assert false
         in
-        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; array }
+        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; (* array *) }
       else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
-        map := { typ = Rand; ctr = p1map.ctr; array }
+        map := { typ = Rand; ctr = p1map.ctr; (* array *) }
       else
-        map := { typ = Bot; ctr = p1map.ctr; array }
+        map := { typ = Bot; ctr = p1map.ctr; (* array *) }
   in
   let f' v =
     f v;
@@ -509,12 +509,12 @@ let check t types rand checks ~simple =
 let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
-  let f v = let _, map = G.V.label v in !map.array in
-  (* let ctr v = let _, map = G.V.label v in !map.ctr in *)
+  (* let f v = let _, map = G.V.label v in !map.array in *)
+  let ctr v = let _, map = G.V.label v in !map.ctr in
   match t.checks with
   | a :: b :: [] ->
-    if not (Array.equal (f a) (f b) (fun i j -> i = j)) then Ok ()
-    (* if ctr a <> ctr b then Ok () *)
+    (* if not (Array.equal (f a) (f b) (fun i j -> i = j)) then Ok () *)
+    if ctr a <> ctr b then Ok ()
     else Or_error.errorf "Encode graph insecure: counters are equal"
   | _ -> assert false
 
@@ -625,6 +625,8 @@ let is_parallel t strong ~simple =
       let cost = max (List.nth_exn r 0) (List.nth_exn r 1) in
       cost <= maxcost
   | Tag -> assert false
+
+let count t inst = find_all_vertices_by_inst t.g inst |> List.length
 
 (* let oae tenc tdec ttag types enc_checks dec_checks ~simple = *)
 (*   let open Or_error.Monad_infix in *)
