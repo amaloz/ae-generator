@@ -78,10 +78,12 @@ let spec_check =
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
     ~doc:"FILE Save mode to FILE instead of displaying"
+  +> flag "-attack" no_arg
+    ~doc:" Check if given mode has an attack"
   ++ spec_common
 
 let run_check mode encode decode tag check display eval dec_file enc_file
-    parallel strong forward cost save simple debug () =
+    parallel strong forward cost save attack simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -137,6 +139,11 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     (if parallel then check_parallel mode else Ok ()) >>= fun () ->
     (if forward then check_forward mode else Ok ())
   in
+  let fattack mode =
+    if AeGraph.is_attack_dec mode.encode mode.decode ~simple then Ok ()
+    else Or_error.errorf "No attack found"
+  in
+
   let fcheck mode =
     let f g = AeGraph.is_secure g ~simple in
     f mode.encode >>= fun () ->
@@ -179,6 +186,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     let mode = { encode; decode; tag } in
     prune mode                                              >>= fun () ->
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
+    begin if attack then fattack mode else Ok () end        >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
@@ -234,8 +242,8 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let run () =
     begin
-      if check || display || eval then Ok ()
-      else Or_error.errorf "One of -check, -display, -eval must be used"
+      if attack || check || display || eval then Ok ()
+      else Or_error.errorf "One of -attack, -check, -display, -eval must be used"
     end >>= fun () ->
     match enc_file, dec_file with
     | Some _, Some _ ->
@@ -263,9 +271,11 @@ let spec_synth =
     ~doc:(sprintf "N Number of instructions in encode to generate (default: %d)" size)
   +> flag "-print" no_arg
     ~doc:" Print found schemes to stdout"
+  +> flag "-attack" no_arg
+    ~doc:" Synthesize schemes that we cannot find attacks to (rather than schemes we find secure)"
   ++ spec_common
 
-let run_synth encode decode size print simple debug () =
+let run_synth encode decode size print attack simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let run () =
@@ -276,7 +286,7 @@ let run_synth encode decode size print simple debug () =
       | false, true -> Ok false
       | false, false -> Or_error.errorf "One of -encode, -decode must be used"
     end >>| fun use_enc ->
-    AeSynth.synth ~use_enc ~simple ~print size
+    AeSynth.synth ~use_enc ~simple ~print ~attack size
   in
   match run () with
   | Ok _ -> ()

@@ -145,25 +145,56 @@ let fprocess ~use_enc ~simple =
       AeGraph.check_paths encode       >>= fun () ->
       AeGraph.reverse encode           >>= fun decode ->
       AeGraph.is_secure encode ~simple >>= fun () ->
-      AeGraph.is_secure decode ~simple
+      AeGraph.is_secure decode ~simple >>= fun () ->
+      Ok (encode, decode)
   else
     fun block ->
       AeGraph.create block Decode      >>= fun decode ->
       AeGraph.check_paths decode       >>= fun () ->
       AeGraph.is_secure decode ~simple >>= fun () ->
       AeGraph.reverse decode           >>= fun encode ->
-      AeGraph.is_secure encode ~simple
+      AeGraph.is_secure encode ~simple >>= fun () ->
+      Ok (encode, decode)
 
-let process block ~fprocess ~simple =
+let fprocess' ~use_enc ~simple =
+  (* Don't actually check security here *)
+  let open Or_error.Monad_infix in
+  if use_enc then
+    fun block ->
+      AeGraph.create block Encode      >>= fun encode ->
+      AeGraph.check_paths encode       >>= fun () ->
+      AeGraph.reverse encode           >>= fun decode ->
+      Ok (encode, decode)
+  else
+    fun block ->
+      AeGraph.create block Decode      >>= fun decode ->
+      AeGraph.check_paths decode       >>= fun () ->
+      AeGraph.reverse decode           >>= fun encode ->
+      Ok (encode, decode)
+
+let process block ~fprocess ~simple ~attack =
   let process block =
     Lgr.info "Trying %s" (string_of_op_list block);
     try_count := !try_count + 1;
     let open Or_error.Monad_infix in
-    fprocess block >>| fun () ->
+    fprocess block >>| fun (encode, decode) ->
     Lgr.info "Secure: %s" (string_of_op_list block);
     (* Need this for synthesis if we kill execution before finishing *)
     printf "%s\n%!" (string_of_op_list block);
     block
+  in
+  let process' block =
+    Lgr.info "Trying %s" (string_of_op_list block);
+    try_count := !try_count + 1;
+    let open Or_error.Monad_infix in
+    fprocess block >>= fun (encode, decode) ->
+    (* Only reject if we can find an attack *)
+    begin
+      if AeGraph.is_attack_enc encode ~simple
+         || AeGraph.is_attack_dec encode decode ~simple then
+        Or_error.errorf "Attack found"
+      else Ok ()
+    end >>| fun () -> block
   in
   (* Replace terminal nodes with leaf nodes *)
   let rec replace ~block ~perm ~typ =
@@ -187,6 +218,7 @@ let process block ~fprocess ~simple =
     if simple then start_perms_simple, term_perms_simple
     else start_perms, term_perms
   in
+  let process = if attack then process' else process in
   let f perm =
     let block = replace ~block ~perm ~typ:Terminal in
     let f perm = replace ~block ~perm ~typ:Start |> strip |> process in
@@ -197,7 +229,7 @@ let process block ~fprocess ~simple =
       | Ok block -> Some block
       | Error _ -> None)
 
-let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts =
+let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~attack =
   (* n contains the number of available inputs after 'op' is used *)
   let n = ninputs - n_in op + n_out op in
   if n >= 0 then
@@ -214,35 +246,40 @@ let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts =
             | None -> counts
           in
           loop ~fprocess ~simple ~maxsize ~depth:(depth - 1) ~ninputs:n
-            ~block:(op :: block) ~counts acc
+            ~block:(op :: block) ~counts ~attack acc
         else acc
       else acc
     else acc
   else acc
-and loop acc ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts =
+and loop acc ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~attack =
   match depth with
   | 0 ->
     let block = List.rev block in
     if ninputs = 0 && is_valid ~simple block then
-      process block ~fprocess ~simple |> List.append acc
+      process block ~fprocess ~simple ~attack |> List.append acc
     else
       acc
   | _ when depth > 0 ->
     List.fold ops ~init:acc
-      ~f:(fold ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts)
+      ~f:(fold ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~attack)
   | _ -> acc
 
-let synth size ~use_enc ~simple ~print =
+let synth size ~use_enc ~simple ~print ~attack =
   let counts = if simple then counts_simple else counts in
-  let fprocess = fprocess ~use_enc ~simple in
+  let fprocess = if attack
+    then fprocess' ~use_enc ~simple
+    else fprocess ~use_enc ~simple in
   let f acc op = 
     let blocks = fold ~fprocess ~simple ~maxsize:size ~depth:size ~ninputs:0
-        ~block:[] ~counts [] op in
+        ~block:[] ~counts ~attack [] op in
     List.append blocks acc
   in
   let found = List.fold initial ~init:[] ~f in
   printf "# Tried:  %d\n%!" !try_count;
-  printf "# Secure: %d\n%!" (List.length found);
+  if attack then
+    printf "# No attacks: %d\n%!" (List.length found)
+  else
+    printf "# Secure: %d\n%!" (List.length found);
   let found = remove_dups ~use_enc ~simple found in
   printf "# Unique: %d\n%!" (List.length found);
   if print then

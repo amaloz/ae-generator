@@ -63,7 +63,22 @@ let find_all_vertices_by_inst g inst =
 let xor_array a b =
   Array.map2_exn a b (fun i j -> (i + j) % 2)
 
+let and_bit a b =
+  match a, b with
+  | false, _ | _, false -> false
+  | true, true -> true
+
+let xor_bit a b =
+  match a, b with
+  | false, false | true, true -> false
+  | false, true | true, false -> true
+
+let xor_bit_array a b =
+  Array.map2_exn a b xor_bit
+
 type t = { g : G.t; phase : phase; checks : G.V.t list }
+
+let count t inst = find_all_vertices_by_inst t.g inst |> List.length
 
 let create block phase =
   let open Or_error.Monad_infix in
@@ -626,4 +641,158 @@ let is_parallel t strong ~simple =
       cost <= maxcost
   | Tag -> assert false
 
-let count t inst = find_all_vertices_by_inst t.g inst |> List.length
+let get_d t ~simple =
+  match t.phase with
+  | Tag -> if simple then 1 else 2
+  | Encode | Decode -> if simple then 3 else 4
+
+let attack_vector t v ~simple =
+  let d = get_d t ~simple in
+  let tbcs = find_all_vertices_by_inst t.g Tbc in
+  let ntbcs = List.length tbcs in
+  let empty = Array.init (d + ntbcs) (fun _ -> false) in
+  let rec f v =
+    let inst, _ = G.V.label v in
+    let empty = Array.copy empty in
+    match inst with
+    | In1 -> Array.set empty 0 true; empty
+    | In2 -> Array.set empty 1 true; empty
+    | Ini1 -> Array.set empty 2 true; empty
+    | Ini2 -> Array.set empty 3 true; empty (* simple graphs don't have this *)
+    | Fin1 | Fin2 | Dup | Out1 | Out2 ->
+      let v = G.pred t.g v |> List.hd_exn in
+      f v
+    | Tbc ->
+      begin
+        match List.findi tbcs (fun i v' -> v = v') with
+        | Some (i, _) -> Array.set empty (d + i) true; empty
+        | None -> assert false
+      end
+    | Xor ->
+      let ps = G.pred t.g v in
+      begin
+        match List.length ps with
+        | 1 -> empty
+        | 2 -> xor_bit_array (f (List.nth_exn ps 0)) (f (List.nth_exn ps 1))
+        | _ -> assert false
+      end
+  in
+  let inst, _ = G.V.label v in
+  let vector = f v in
+  Lgr.debug "  Vector for %s: %s" (string_of_inst inst)
+    (Array.to_list vector |> List.to_string ~f:Bool.to_string);
+  vector
+
+let attack_vector_by_inst t inst ~simple =
+  attack_vector t (find_vertex_by_inst t.g inst) ~simple
+
+let tbc_entries d array = Array.slice array d (Array.length array)
+
+let is_attack_tag tenc tdec ttag ~simple =
+  match is_secure ttag ~simple with
+  | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
+  | Error _ -> begin
+      Lgr.info "Checking attack on Tag graph";
+      let d = get_d tenc ~simple in
+      let check_tag_1 () =
+        (* XXX: assumes only a single TBC node in Tag graph! *)
+        let v = attack_vector_by_inst ttag Out1 ~simple in
+        if simple then begin
+          assert (Array.length v = 2);
+          match v.(0), v.(1) with
+          | _, true -> false
+          | false, false -> true
+          | true, false ->
+            let v = attack_vector_by_inst tenc Fin1 ~simple |> tbc_entries d in
+            Array.for_all v (fun b -> not b)
+        end else begin
+          assert (Array.length v = 3);
+          match v.(0), v.(1), v.(2) with
+          | _, _, true -> false
+          | false, false, false -> true
+          | true, false, false | false, true, false ->
+            let v = find_vertex_by_inst tenc.g (if v.(0) then Fin1 else Fin2) in
+            let v = attack_vector tenc v ~simple |> tbc_entries d in
+            Array.for_all v (fun b -> not b)
+          | true, true, false ->
+            let v1 = attack_vector_by_inst tenc Fin1 ~simple |> tbc_entries d in
+            let v2 = attack_vector_by_inst tenc Fin2 ~simple |> tbc_entries d in
+            Array.for_all2_exn v1 v2 (fun a b -> a = b)
+        end
+      in
+      let check_tag_2 () = false in (* XXX: not yet implemented! *)
+      check_tag_1 () || check_tag_2 ()
+    end
+
+let is_attack_enc tenc ~simple =
+  match is_secure tenc ~simple with
+  | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
+  | Error _ -> begin
+      Lgr.info "Checking attack on Enc graph";
+      let d = get_d tenc ~simple  in
+      let v1 = attack_vector_by_inst tenc Out1 ~simple |> tbc_entries d in
+      let v2 = attack_vector_by_inst tenc Out2 ~simple |> tbc_entries d in
+      Array.for_all v1 (fun b -> not b)
+      || Array.for_all v2 (fun b -> not b)
+      || Array.for_all2_exn v1 v2 (fun a b -> a = b)
+    end
+
+let is_attack_dec tenc tdec ~simple =
+  match is_secure tdec ~simple with
+  | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
+  | Error _ -> begin
+      Lgr.info "Checking attack on Dec graph"; 
+      let check_dec_1 () =
+        let c = Check.create tdec.g in
+        let check v1 v2 = Check.check_path c v1 v2 in
+        let inst_to_v inst = find_vertex_by_inst tdec.g inst in
+        let check_ii () =
+          Lgr.info "  Checking condition (ii)";
+          let f = if simple then
+              fun v ->
+                not (check (inst_to_v Ini1) v && check v (inst_to_v Fin1))
+            else
+              fun v ->
+                not ((check (inst_to_v Ini1) v || check (inst_to_v Ini2) v)
+                     && (check v (inst_to_v Fin1) || check v (inst_to_v Fin2)))
+          in
+          let tbcs = find_all_vertices_by_inst tdec.g Tbc in
+          List.exists tbcs f
+        in
+        let check_i () =
+          Lgr.info "  Checking condition (i)";
+          let tbcs = find_all_vertices_by_inst tdec.g Tbc in
+          let f inst =
+            let tbcs = List.filter tbcs (fun v -> check v (inst_to_v inst)) in
+            let vs = List.map tbcs (fun v -> attack_vector tdec v ~simple) in
+            let check b1 b2 =
+              let u = attack_vector_by_inst tdec Fin1 ~simple in
+              if xor_bit (and_bit u.(2) b1) (and_bit u.(3) b2) then
+                check_ii ()
+              else true
+            in
+            let f a b v = v.(2) = a && v.(3) = b in
+            if List.for_all vs (fun v -> f false false v)
+               || List.for_all vs (fun v -> f true true v) then
+              check true true
+            else if List.for_all vs (fun v -> f false true v) then
+              check true false
+            else if List.for_all vs (fun v -> f true false v) then
+              check false true
+            else false
+          in
+          if simple then f Fin1 else f Fin1 || f Fin2
+        in
+        check_i ()
+      in
+      let check_dec_2 () =
+        let v = attack_vector_by_inst tdec Fin1 ~simple in
+        not v.(0) && not v.(1)
+      in
+      check_dec_1 () || check_dec_2 ()
+    end
+
+let is_attack tenc tdec ttag ~simple =
+  is_attack_tag tenc tdec ttag ~simple
+  || is_attack_enc tenc ~simple
+  || is_attack_dec tenc tdec ~simple
