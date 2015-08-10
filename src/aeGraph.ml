@@ -680,12 +680,15 @@ let attack_vector t v =
 let attack_vector_by_inst t inst =
   attack_vector t (find_vertex_by_inst t.g inst)
 
+(* Extract TBC entries from array *)
 let tbc_entries d array = Array.slice array d (Array.length array)
 
 let is_attack_tag tenc tdec ttag ~simple =
   match is_secure ttag ~simple with
   | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
-  | Error _ -> false            (* XXX: not yet implemented! *)
+  | Error _ -> false            (* XXX: not yet implemented!
+                                   (not needed for synthesized schemes,
+                                   since Tag is always secure) *)
 
 let is_attack_enc tenc ~simple =
   match is_secure tenc ~simple with
@@ -713,7 +716,7 @@ let is_attack_dec tenc tdec ~simple =
              && check (inst_to_v In2) (inst_to_v Fin1))
       in
       let check_dec_1 () =
-        let check_ii c1 c2 u vs =
+        let check_tbcs c1 c2 u vs =
           let check t1 t2 =
             if xor_bit (and_bit c1 u.(0)) (and_bit c2 u.(1))
                = xor_bit (and_bit t1 u.(2)) (and_bit t2 u.(3)) then
@@ -722,47 +725,42 @@ let is_attack_dec tenc tdec ~simple =
               List.for_all vs f
             else false
           in
-          check false false
-          || check false true
-          || check true false
-          || check true true
+          check false false || check false true
+          || check true false || check true true
         in
-        let check_i () =
-          let tbcs = find_all_vertices_by_inst tdec.g Tbc in
-          let f inst =
-            (* Get all TBC nodes reachable by 'inst' *)
-            let tbcs = List.filter tbcs (fun v -> check v (inst_to_v inst)) in
-            (* Get the attack vector of these nodes *)
-            let vs = List.map tbcs (fun v -> attack_vector tdec v) in
-            let check b1 b2 =
-              let u = attack_vector_by_inst tdec Fin1 in
-              let c1 = xor_bit (and_bit u.(2) b1) (and_bit u.(3) b2) in
-              let c2 =
-                if simple then false else
-                  let w = attack_vector_by_inst tdec Fin2 in
-                  xor_bit (and_bit w.(2) b1) (and_bit w.(3) b2)
-              in
-              check_ii c1 c2 u vs (* XXX: 'vs' should be only first FIN node *)
+        let tbcs = find_all_vertices_by_inst tdec.g Tbc in
+        let f inst =
+          (* Get all TBC nodes reachable by 'inst' *)
+          let tbcs = List.filter tbcs (fun v -> check v (inst_to_v inst)) in
+          (* Get the attack vectors of these nodes *)
+          let vs = List.map tbcs (fun v -> attack_vector tdec v) in
+          let check_fin_vectors b1 b2 =
+            let u = attack_vector_by_inst tdec Fin1 in
+            let c1 = xor_bit (and_bit u.(2) b1) (and_bit u.(3) b2) in
+            let c2 = if simple then false else
+                let w = attack_vector_by_inst tdec Fin2 in
+                xor_bit (and_bit w.(2) b1) (and_bit w.(3) b2)
             in
-            let f r1 r2 v = and_bit v.(2) r1 = and_bit v.(3) r2 in
-            if List.for_all vs (fun v -> f true true v) then
-              check true true
-            else if List.for_all vs (fun v -> f false true v) then
-              check false true
-            else if List.for_all vs (fun v -> f true false v) then
-              check true false
-            else false
+            check_tbcs c1 c2 u vs (* XXX: 'vs' should be only first FIN node *)
+            (* XXX: For simple schemes this is OKAY! *)
           in
-          if simple then f Fin1 else f Fin1 || f Fin2
+          let f r1 r2 v = and_bit v.(2) r1 = and_bit v.(3) r2 in
+          if List.for_all vs (fun v -> f true true v) then
+            check_fin_vectors true true
+          else if List.for_all vs (fun v -> f false true v) then
+            check_fin_vectors false true
+          else if List.for_all vs (fun v -> f true false v) then
+            check_fin_vectors true false
+          else false
         in
-        check_i ()
+        if simple then f Fin1 else f Fin1 || f Fin2
       in
       let check_dec_2 () =
         let v = attack_vector_by_inst tdec Fin1 in
         not v.(0) && not v.(1)
       in
       if check_reachability () then true
-      else check_dec_1 () || check_dec_2 ()
+      else check_dec_2 () || check_dec_1 ()
     end
 
 let is_attack tenc tdec ttag ~simple =
