@@ -191,7 +191,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     begin if eval then feval mode else Ok () end
   in
   let read_file file phase =
-    assert (check || display || eval);
+    assert (attack || check || display || eval);
     let fold (count, acc) line =
       if line = "" || String.contains ~pos:0 ~len:1 line '#' then (count, acc)
       else
@@ -227,7 +227,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
         found := block :: !found;
         count + 1
       | Error err ->
-        (* eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err); *)
+        eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err);
         count
     in
     let secure = List.fold ~init:0 blocks ~f in
