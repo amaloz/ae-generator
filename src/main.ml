@@ -140,8 +140,9 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     (if forward then check_forward mode else Ok ())
   in
   let fattack mode =
-    if AeGraph.is_attack_dec mode.encode mode.decode ~simple then Ok ()
-    else Or_error.errorf "No attack found"
+    if AeGraph.is_attack_dec mode.encode mode.decode ~simple then
+      Or_error.errorf "Attack found"
+    else Ok ()
   in
 
   let fcheck mode =
