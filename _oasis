@@ -11,7 +11,7 @@ Synopsis: Authenticated encryption scheme generator
 Description:
 
 AlphaFeatures: ocamlbuild_more_args
-XOCamlbuildExtraArgs: -cflag -safe-string
+XOCamlbuildExtraArgs:
 
 BuildDepends: core,
               cryptokit,
