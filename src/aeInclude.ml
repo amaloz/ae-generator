@@ -1,3 +1,3 @@
 include AeOps
-include Core.Std
+include Core
 module Lgr = Log

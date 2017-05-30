@@ -233,7 +233,7 @@ let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~a
   (* n contains the number of available inputs after 'op' is used *)
   let n = ninputs - n_in op + n_out op in
   if n >= 0 then
-    let count = List.Assoc.find counts op in
+    let count = List.Assoc.find counts (=) op in
     let skip = match count with
       | Some c -> c = 0
       | None -> false
@@ -242,7 +242,7 @@ let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~a
       if n_in op <= ninputs then
         if not (is_pruneable op block) then
           let counts = match count with
-            | Some c -> List.Assoc.add counts op (c - 1)
+            | Some c -> List.Assoc.add counts (=) op (c - 1)
             | None -> counts
           in
           loop ~fprocess ~simple ~maxsize ~depth:(depth - 1) ~ninputs:n
