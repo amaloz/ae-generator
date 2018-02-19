@@ -214,8 +214,8 @@ let msg1 = "12345678123456781234567812345678"
 let msg2 = "87654321876543218765432187654321"
 
 let eval t ~simple ~msg1 ~msg2 =
-  let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s in
-  let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) s
+  let ofhexstr s = Cryptokit.transform_string (Cryptokit.Hexa.decode ()) s |> Bytes.of_string in
+  let tohexstr s = Cryptokit.transform_string (Cryptokit.Hexa.encode ()) (Bytes.to_string s)
                    |> String.uppercase in
   let chr = function
     | 0 -> '0' | 1 -> '1' | 2 -> '2' | 3 -> '3' | 4 -> '4' | 5 -> '5'
@@ -253,7 +253,7 @@ let eval t ~simple ~msg1 ~msg2 =
       end
     | Tbc ->
       let v = G.pred t.g v |> List.hd_exn in
-      let r = String.create 16 in
+      let r = Bytes.create 16 in
       cipher#transform (ofhexstr (f v)) 0 r 0;
       tohexstr r
   in
@@ -492,10 +492,10 @@ let map t types rand ~simple =
       || (p1map.typ = Zero && p2map.typ = One)
       || (p1map.typ = One && p2map.typ = Zero) then
         let xor_types = function
-        | One, One -> Bot
-        | Zero, Zero -> Zero
-        | Zero, One | One, Zero -> One
-        | _ , _ -> assert false
+          | One, One -> Bot
+          | Zero, Zero -> Zero
+          | Zero, One | One, Zero -> One
+          | _ , _ -> assert false
         in
         map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; (* array *) }
       else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
@@ -706,7 +706,7 @@ let is_attack_dec tenc tdec ~simple =
   match is_secure tdec ~simple with
   | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
   | Error _ -> begin
-      Lgr.info "Checking attack on Dec graph"; 
+      Lgr.info "Checking attack on Dec graph";
       let c = Check.create tdec.g in
       let check v1 v2 = Check.check_path c v1 v2 in
       let inst_to_v inst = find_vertex_by_inst tdec.g inst in

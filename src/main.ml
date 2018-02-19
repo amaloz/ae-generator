@@ -294,7 +294,7 @@ let run_synth encode decode size print attack simple debug () =
   | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err)
 
 let check =
-  Command.basic
+  Command.basic_spec
     ~summary:"Authenticated encryption scheme prover."
     ~readme:(fun () -> sprintf "\
 Proves a given authenticated encryption scheme secure.  The user can either
@@ -309,7 +309,7 @@ Using the -simple flag will remove INI2 and FIN2 from the available instructions
     run_check
 
 let synth =
-  Command.basic
+  Command.basic_spec
     ~summary:"Authenticated encryption scheme synthesizer."
     spec_synth
     run_synth
