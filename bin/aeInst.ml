@@ -64,7 +64,7 @@ let from_string s =
   | _ as s -> Or_error.errorf "unknown instruction '%s'" s
 
 let from_string_block s =
-  List.map (String.split s ~on:' ') from_string |> Or_error.combine_errors
+  List.map (String.split s ~on:' ') ~f:from_string |> Or_error.combine_errors
 
 let block_length l =
   (* we do not count stack instructions as part of the block length *)
@@ -76,7 +76,7 @@ let block_length l =
 
 (* counts the number of modes of size 'size' in list 'found' *)
 let count found size =
-  List.count found (fun l -> block_length l = size)
+  List.count found ~f:(fun l -> block_length l = size)
 
 let count_inst l inst =
   let f acc = function
@@ -87,20 +87,20 @@ let count_inst l inst =
 
 let print_modes found maxsize =
   for i = 1 to maxsize do
-    let l = List.filter found (fun block -> block_length block = i) in
-    let l = List.map l (fun block -> string_of_op_list block) in
-    let l = List.sort ~cmp:String.compare l in
+    let l = List.filter found ~f:(fun block -> block_length block = i) in
+    let l = List.map l ~f:(fun block -> string_of_op_list block) in
+    let l = List.sort ~compare:String.compare l in
     if List.length l > 0 then
       begin
         Printf.printf "modes of length %d:\n" i;
-        List.iter l (fun block -> Printf.printf "%s\n" block)
+        List.iter l ~f:(fun block -> Printf.printf "%s\n" block)
       end
   done
 
 let validate block phase ~simple =
   let eq x y = (Inst x) = y in
   let one inst =
-    let c = List.count block (eq inst) in
+    let c = List.count block ~f:(eq inst) in
     if c = 1 then Ok ()
     else Or_error.errorf "%s: Need exactly one %s instruction (%d found)"
         (string_of_phase phase) (string_of_inst inst) c
@@ -112,13 +112,13 @@ let validate block phase ~simple =
       if simple then [Ini1; Fin1; In1; In2; Out1; Out2]
       else [Ini1; Ini2; Fin1; Fin2; In1; In2; Out1; Out2]
     in
-    Or_error.combine_errors_unit (List.map l one) >>= fun () ->
+    Or_error.combine_errors_unit (List.map l ~f:one) >>= fun () ->
     let f acc i = acc - n_in i + n_out i in
     if List.fold block ~init:0 ~f = 0 then Ok ()
     else Or_error.errorf "%s: Leftover items on stack" (string_of_phase phase)
   | Tag ->
     let l = if simple then [Ini1; Out1] else [Ini1; Ini2; Out1] in
-    Or_error.combine_errors_unit (List.map l one) >>= fun () ->
+    Or_error.combine_errors_unit (List.map l ~f:one) >>= fun () ->
     let none = if simple then [Ini2; Out2; Fin1; Fin2] else [Out2; Fin1; Fin2] in
     let f op = List.exists none ~f:(fun inst -> op = Inst inst) in
     if List.exists block ~f then Or_error.errorf "Tag: Invalid instruction"
@@ -126,12 +126,12 @@ let validate block phase ~simple =
 
 let is_valid block ~simple =
   let eq x y = (Inst x) = y in
-  List.count block (eq Ini1) = 1
-  && List.count block (eq Ini2) = (if simple then 0 else 1)
-  && List.count block (eq Fin1) = 1
-  && List.count block (eq Fin2) = (if simple then 0 else 1)
-  && List.count block (eq In1) = 1
-  && List.count block (eq In2) = 1
-  && List.count block (eq Out1) = 1
-  && List.count block (eq Out2) = 1
-  && List.exists block (eq Tbc)
+  List.count block ~f:(eq Ini1) = 1
+  && List.count block ~f:(eq Ini2) = (if simple then 0 else 1)
+  && List.count block ~f:(eq Fin1) = 1
+  && List.count block ~f:(eq Fin2) = (if simple then 0 else 1)
+  && List.count block ~f:(eq In1) = 1
+  && List.count block ~f:(eq In2) = 1
+  && List.count block ~f:(eq Out1) = 1
+  && List.count block ~f:(eq Out2) = 1
+  && List.exists block ~f:(eq Tbc)

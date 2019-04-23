@@ -64,9 +64,9 @@ let spec_check =
     ~doc:" Display given mode as a graph (needs 'gvpack', 'dot', and 'feh')"
   +> flag "-eval" no_arg
     ~doc:" Evaluate the given mode"
-  +> flag "-dec-file" (optional file)
+  +> flag "-dec-file" (optional string)
     ~doc:"FILE Run against modes (given as decode algorithms) in FILE"
-  +> flag "-enc-file" (optional file)
+  +> flag "-enc-file" (optional string)
     ~doc:"FILE Run against modes (given as encode algorithms) in FILE"
   +> flag "-parallel" no_arg
     ~doc:" Check if given mode is (weakly) parallelizable"
@@ -104,7 +104,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       end
   in
   let get_phase = function
-    | Some mode -> Ok Decode
+    | Some _ -> Ok Decode
     | None -> begin
         match encode, decode with
         | Some _, Some _ ->
@@ -234,7 +234,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     let secure = List.fold ~init:0 blocks ~f in
     printf "# Secure / Unique / Total: %d / %d / %d\n%!" secure unique total;
     let count blocks size =
-      List.count blocks (fun block -> List.length block = size)
+      List.count blocks ~f:(fun block -> List.length block = size)
     in
     for i = !minsize to !maxsize do
       printf "# modes of size %d = %d\n%!" i (count !found i)

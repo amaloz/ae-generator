@@ -49,11 +49,11 @@ let try_count = ref 0
 let is_valid ~simple block =
   let opeq x y = Op (Inst x) = y in
   let syntheq x y = SynthInst x = y in
-  List.exists block (opeq Tbc)
-  && List.exists block (opeq Xor)
-  && List.exists block (opeq Dup)
-  && List.count block (syntheq Start) = (if simple then 3 else 4)
-  && List.count block (syntheq Terminal) = (if simple then 3 else 4)
+  List.exists block ~f:(opeq Tbc)
+  && List.exists block ~f:(opeq Xor)
+  && List.exists block ~f:(opeq Dup)
+  && List.count block ~f:(syntheq Start) = (if simple then 3 else 4)
+  && List.count block ~f:(syntheq Terminal) = (if simple then 3 else 4)
 
 let is_pruneable op block =
   let cmp_prev cur prev =
@@ -115,7 +115,7 @@ let string_of_synth_op = function
   | SynthInst inst -> string_of_synth_inst inst
 
 let string_of_synth_op_list l =
-  List.to_string string_of_synth_op l
+  List.to_string ~f:string_of_synth_op l
 
 (* From: http://rosettacode.org/wiki/Permutations#OCaml *)
 let rec permutations l =
@@ -156,7 +156,7 @@ let fprocess ~use_enc ~simple =
       AeGraph.is_secure encode ~simple >>= fun () ->
       Ok (encode, decode)
 
-let fprocess' ~use_enc ~simple =
+let fprocess' ~use_enc ~simple: _ =
   (* Don't actually check security here *)
   let open Or_error.Monad_infix in
   if use_enc then
@@ -177,7 +177,7 @@ let process block ~fprocess ~simple ~attack =
     Lgr.info "Trying %s" (string_of_op_list block);
     try_count := !try_count + 1;
     let open Or_error.Monad_infix in
-    fprocess block >>| fun (encode, decode) ->
+    fprocess block >>| fun (_, _) ->
     Lgr.info "Secure: %s" (string_of_op_list block);
     (* Need this for synthesis if we kill execution before finishing *)
     printf "%s\n%!" (string_of_op_list block);
@@ -233,7 +233,7 @@ let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~a
   (* n contains the number of available inputs after 'op' is used *)
   let n = ninputs - n_in op + n_out op in
   if n >= 0 then
-    let count = List.Assoc.find counts (=) op in
+    let count = List.Assoc.find counts ~equal:(=) op in
     let skip = match count with
       | Some c -> c = 0
       | None -> false
@@ -242,7 +242,7 @@ let rec fold acc op ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~a
       if n_in op <= ninputs then
         if not (is_pruneable op block) then
           let counts = match count with
-            | Some c -> List.Assoc.add counts (=) op (c - 1)
+            | Some c -> List.Assoc.add counts ~equal:(=) op (c - 1)
             | None -> counts
           in
           loop ~fprocess ~simple ~maxsize ~depth:(depth - 1) ~ninputs:n
@@ -269,7 +269,7 @@ let synth size ~use_enc ~simple ~print ~attack =
   let fprocess = if attack
     then fprocess' ~use_enc ~simple
     else fprocess ~use_enc ~simple in
-  let f acc op = 
+  let f acc op =
     let blocks = fold ~fprocess ~simple ~maxsize:size ~depth:size ~ninputs:0
         ~block:[] ~counts ~attack [] op in
     List.append blocks acc
@@ -283,4 +283,4 @@ let synth size ~use_enc ~simple ~print ~attack =
   let found = remove_dups ~use_enc ~simple found in
   printf "# Unique: %d\n%!" (List.length found);
   if print then
-    List.iter found (fun block -> printf "%s\n%!" (string_of_op_list block))
+    List.iter found ~f:(fun block -> printf "%s\n%!" (string_of_op_list block))

@@ -49,7 +49,7 @@ let find_vertex_by_inst g inst =
       if inst' = inst then Some v else None
   in
   match G.fold_vertex f g None with
-  | None -> raise Not_found
+  | None -> raise (Not_found_s (Sexp.Atom "no vertex found"))
   | Some v -> v
 
 let find_all_vertices_by_inst g inst =
@@ -58,10 +58,10 @@ let find_all_vertices_by_inst g inst =
     if inst' = inst then v :: acc else acc
   in
   let l = G.fold_vertex f g [] in
-  if l = [] then raise Not_found else l
+  if l = [] then raise (Not_found_s (Sexp.Atom "no vertices found")) else l
 
 let xor_array a b =
-  Array.map2_exn a b (fun i j -> (i + j) % 2)
+  Array.map2_exn a b ~f:(fun i j -> (i + j) % 2)
 
 let and_bit a b =
   match a, b with
@@ -74,7 +74,7 @@ let xor_bit a b =
   | false, true | true, false -> true
 
 let xor_bit_array a b =
-  Array.map2_exn a b xor_bit
+  Array.map2_exn a b ~f:xor_bit
 
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
@@ -229,7 +229,7 @@ let eval t ~simple ~msg1 ~msg2 =
     | _ -> failwith "Fatal: invalid character" in
   let xor s s' =
     let xor c c' = chr ((ord c) lxor (ord c')) in
-    String.mapi s (fun i c -> xor c s'.[i]) in
+    String.mapi s ~f:(fun i c -> xor c s'.[i]) in
   let rec f v =
     let inst, _ = G.V.label v in
     match inst with
@@ -277,7 +277,7 @@ let find_vertex g mark =
   in
   match G.fold_vertex f g None with
   | Some v -> v
-  | None -> raise Not_found
+  | None -> raise (Not_found_s (Sexp.Atom "no vertex found"))
 
 let reverse t =
   Lgr.info "Reversing %s graph" (string_of_phase t.phase);
@@ -437,7 +437,7 @@ let check_paths t =
 
 (* Runs the Map function mapping nodes to (type, ctr) tuples *)
 let map t types rand ~simple =
-  Lgr.info "Checking %s %b" (List.to_string string_of_typ (Array.to_list types)) rand;
+  Lgr.info "Checking %s %b" (List.to_string ~f:string_of_typ (Array.to_list types)) rand;
   let ntbc = find_all_vertices_by_inst t.g Tbc |> List.length in
   let i = ref 0 in
   let max_ctr = ref 0 in
@@ -456,7 +456,7 @@ let map t types rand ~simple =
       | Tag ->
         if simple then [| Ini1 |] else [| Ini1; Ini2 |]
     in
-    Array.iter2_exn l types f
+    Array.iter2_exn l types ~f:f
   end;
   let f v =
     let inst, _ = G.V.label v in
@@ -469,7 +469,7 @@ let map t types rand ~simple =
     | Tbc ->
       let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
       let _, map = G.V.label v in
-      let array = Array.init ntbc (fun _ -> 0) in
+      let array = Array.init ntbc ~f:(fun _ -> 0) in
       Array.set array !i 1;
       i := !i + 1;
       if rand || !pmap.typ = One || !pmap.typ = Rand then begin
@@ -645,7 +645,7 @@ let attack_vector t v =
   let d = match t.phase with Tag -> 2 | Encode | Decode -> 4 in
   let tbcs = find_all_vertices_by_inst t.g Tbc in
   let ntbcs = List.length tbcs in
-  let empty = Array.init (d + ntbcs) (fun _ -> false) in
+  let empty = Array.init (d + ntbcs) ~f:(fun _ -> false) in
   let rec f v =
     let inst, _ = G.V.label v in
     let empty = Array.copy empty in
@@ -658,7 +658,7 @@ let attack_vector t v =
       let v = G.pred t.g v |> List.hd_exn in f v
     | Tbc ->
       begin
-        match List.findi tbcs (fun i v' -> v = v') with
+        match List.findi tbcs ~f:(fun _ v' -> v = v') with
         | Some (i, _) -> Array.set empty (d + i) true; empty
         | None -> assert false
       end
@@ -683,7 +683,7 @@ let attack_vector_by_inst t inst =
 (* Extract TBC entries from array *)
 let tbc_entries d array = Array.slice array d (Array.length array)
 
-let is_attack_tag tenc tdec ttag ~simple =
+let is_attack_tag _ _ ttag ~simple =
   match is_secure ttag ~simple with
   | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
   | Error _ -> false            (* XXX: not yet implemented!
@@ -697,12 +697,12 @@ let is_attack_enc tenc ~simple =
       Lgr.info "Checking attack on Enc graph";
       let v1 = attack_vector_by_inst tenc Out1 |> tbc_entries 4 in
       let v2 = attack_vector_by_inst tenc Out2 |> tbc_entries 4 in
-      Array.for_all v1 (fun b -> not b)
-      || Array.for_all v2 (fun b -> not b)
-      || Array.for_all2_exn v1 v2 (fun a b -> a = b)
+      Array.for_all v1 ~f:(fun b -> not b)
+      || Array.for_all v2 ~f:(fun b -> not b)
+      || Array.for_all2_exn v1 v2 ~f:(fun a b -> a = b)
     end
 
-let is_attack_dec tenc tdec ~simple =
+let is_attack_dec _ tdec ~simple =
   match is_secure tdec ~simple with
   | Ok () -> false              (* Secure schemes don't have attacks (duh) *)
   | Error _ -> begin
@@ -722,7 +722,7 @@ let is_attack_dec tenc tdec ~simple =
                = xor_bit (and_bit t1 u.(2)) (and_bit t2 u.(3)) then
               let f x = xor_bit (and_bit c1 x.(0)) (and_bit c2 x.(1))
                         = xor_bit (and_bit t1 x.(2)) (and_bit t2 x.(3)) in
-              List.for_all vs f
+              List.for_all vs ~f:f
             else false
           in
           check false false || check false true
@@ -731,9 +731,9 @@ let is_attack_dec tenc tdec ~simple =
         let tbcs = find_all_vertices_by_inst tdec.g Tbc in
         let f inst =
           (* Get all TBC nodes reachable by 'inst' *)
-          let tbcs = List.filter tbcs (fun v -> check v (inst_to_v inst)) in
+          let tbcs = List.filter tbcs ~f:(fun v -> check v (inst_to_v inst)) in
           (* Get the attack vectors of these nodes *)
-          let vs = List.map tbcs (fun v -> attack_vector tdec v) in
+          let vs = List.map tbcs ~f:(fun v -> attack_vector tdec v) in
           let check_fin_vectors b1 b2 =
             let u = attack_vector_by_inst tdec Fin1 in
             let c1 = xor_bit (and_bit u.(2) b1) (and_bit u.(3) b2) in
@@ -745,11 +745,11 @@ let is_attack_dec tenc tdec ~simple =
             (* XXX: For simple schemes this is OKAY! *)
           in
           let f r1 r2 v = and_bit v.(2) r1 = and_bit v.(3) r2 in
-          if List.for_all vs (fun v -> f true true v) then
+          if List.for_all vs ~f:(fun v -> f true true v) then
             check_fin_vectors true true
-          else if List.for_all vs (fun v -> f false true v) then
+          else if List.for_all vs ~f:(fun v -> f false true v) then
             check_fin_vectors false true
-          else if List.for_all vs (fun v -> f true false v) then
+          else if List.for_all vs ~f:(fun v -> f true false v) then
             check_fin_vectors true false
           else false
         in
