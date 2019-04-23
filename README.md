@@ -1,18 +1,16 @@
-ae-generator
-============
-
-Authenticated encryption scheme prover/synthesizer.
+Authenticated Encryption Scheme Prover/Synthesizer
+==================================================
 
 To use, install the following OCaml packages:
 
-> oasis, core, cryptokit, dolog, ocamlfind (for compilation), ocamlgraph
+> core, cryptokit, dolog, dune, ocamlgraph
 
-Then run:
+To build:
 
-```
-oasis setup
-ocaml setup.ml -configure
-ocaml setup.ml -build
-```
+> dune build bin/main.exe
 
-Please e-mail "amaloz at cs dot umd dot edu" if you encounter any issues.
+To run:
+
+> dune exec bin/main.exe
+
+Please e-mail "amaloz at galois dot com" if you encounter any issues.
