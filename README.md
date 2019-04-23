@@ -1,9 +1,8 @@
-Authenticated Encryption Scheme Prover/Synthesizer
-==================================================
+# Authenticated Encryption Scheme Prover/Synthesizer
 
 This implements the algorithm presented in <https://eprint.iacr.org/2015/624>.
 
-# Installation Instructions
+## Installation Instructions
 
 To use, install the following OCaml packages:
 
@@ -17,10 +16,10 @@ To run:
 
 > dune exec bin/main.exe
 
-# License
+## License
 
 Beerware
 
-# Questions / Concerns
+## Questions / Concerns
 
 Please e-mail "amaloz at galois dot com" if you encounter any issues.
