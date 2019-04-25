@@ -80,10 +80,12 @@ let spec_check =
     ~doc:"FILE Save mode to FILE instead of displaying"
   +> flag "-attack" no_arg
     ~doc:" Check if given mode has an attack"
+  +> flag "-cryptol" no_arg
+    ~doc:" Emit cryptol code"
   ++ spec_common
 
 let run_check mode encode decode tag check display eval dec_file enc_file
-    parallel strong forward cost save attack simple debug () =
+    parallel strong forward cost save attack cryptol simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -117,7 +119,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let check_parallel mode =
     if AeGraph.is_parallel mode.encode strong ~simple
-       && AeGraph.is_parallel mode.decode strong ~simple
+    && AeGraph.is_parallel mode.decode strong ~simple
     then Ok ()
     else Or_error.errorf "Not %s parallelizable"
         (if strong then "strongly" else "weakly")
@@ -144,7 +146,6 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       Or_error.errorf "Attack found"
     else Ok ()
   in
-
   let fcheck mode =
     let f g = AeGraph.is_secure g ~simple in
     f mode.encode >>= fun () ->
@@ -162,6 +163,11 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let fdisplay mode save =
     AeGraph.display mode.encode mode.decode mode.tag ~save;
+    Ok ()
+  in
+  let fcryptol mode =
+    let s = AeGraph.emit mode.encode mode.decode mode.tag in
+    Printf.printf "%s" s;
     Ok ()
   in
   let run_mode mode phase =
@@ -189,6 +195,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if attack then fattack mode else Ok () end        >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
+    begin if cryptol then fcryptol mode else Ok ()      end >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
   let read_file file phase =
@@ -243,8 +250,8 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let run () =
     begin
-      if attack || check || display || eval then Ok ()
-      else Or_error.errorf "One of -attack, -check, -display, -eval must be used"
+      if attack || check || display || eval || cryptol then Ok ()
+      else Or_error.errorf "One of -attack, -check, -display, -eval, or -cryptol must be used"
     end >>= fun () ->
     match enc_file, dec_file with
     | Some _, Some _ ->

@@ -19,24 +19,36 @@ module V = struct
   (* Each vertex contains two elements: the instruction the vertex represents
      and a map reference for checking security of the graph.  *)
   (* XXX: Can we do this without storing the map ref within the vertex type? *)
-  type t = inst * map ref
+  type t = inst * map ref * string ref
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
 module Check = Graph.Path.Check(G)
 
+let create_v inst =
+  G.V.create (inst, ref { typ = Bot; ctr = 0 }, ref "")
+
+let inst_of_v v =
+  let inst, _, _ = G.V.label v in inst
+
+let map_of_v v =
+  let _, map, _ = G.V.label v in map
+
+let cryptol_of_v v =
+  let _, _, cryptol = G.V.label v in cryptol
+
 let string_of_v v =
-  let inst, _ = G.V.label v in
+  let inst, _, _ = G.V.label v in
   string_of_inst inst
 
 let string_of_e e =
-  let src, _ = G.E.src e |> G.V.label in
-  let dst, _ = G.E.dst e |> G.V.label in
+  let src = G.E.src e |> inst_of_v in
+  let dst = G.E.dst e |> inst_of_v in
   [string_of_inst src; string_of_inst dst]
   |> String.concat ~sep:" -> "
 
 let full_string_of_v v =
-  let _, map = G.V.label v in
+  let map = map_of_v v in
   [string_of_typ !map.typ; Int.to_string !map.ctr;
    (* Array.to_list !map.array |> List.to_string ~f:Int.to_string *)]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
@@ -45,16 +57,19 @@ let find_vertex_by_inst g inst =
   let f v = function
     | Some _ as r -> r
     | None ->
-      let inst', _ = G.V.label v in
+      let inst' = inst_of_v v in
       if inst' = inst then Some v else None
   in
-  match G.fold_vertex f g None with
-  | None -> raise (Not_found_s (Sexp.Atom "no vertex found"))
-  | Some v -> v
+  G.fold_vertex f g None
 
-let find_all_vertices_by_inst g inst =
+let find_vertex_by_inst_exn g inst =
+  match find_vertex_by_inst g inst with
+  | Some v -> v
+  | None -> raise (Not_found_s (Sexp.Atom "no vertex found"))
+
+let find_all_vertices_by_inst_exn g inst =
   let f v acc =
-    let inst', _ = G.V.label v in
+    let inst' = inst_of_v v in
     if inst' = inst then v :: acc else acc
   in
   let l = G.fold_vertex f g [] in
@@ -78,7 +93,7 @@ let xor_bit_array a b =
 
 type t = { g : G.t; phase : phase; checks : G.V.t list }
 
-let count t inst = find_all_vertices_by_inst t.g inst |> List.length
+let count t inst = find_all_vertices_by_inst_exn t.g inst |> List.length
 
 let create block phase =
   let open Or_error.Monad_infix in
@@ -105,7 +120,7 @@ let create block phase =
   let f acc op =
     match op with
     | Inst i ->
-      let dst = G.V.create (i, ref { typ = Bot; ctr = 0; (* array = [||] *) }) in
+      let dst = create_v i in
       G.add_vertex g dst;
       pop (AeInst.n_in op) ~dst ~op >>= fun () ->
       push (AeInst.n_out op) ~dst   >>= fun () ->
@@ -162,7 +177,7 @@ let display ?(save=None) t t' t'' =
       `Fontsize 10;
     ]
     let vertex_attributes v =
-      let inst, _ = G.V.label v in
+      let inst = inst_of_v v in
       match inst with
       | _ -> [
           `Label (string_of_inst inst);
@@ -231,7 +246,7 @@ let eval t ~simple ~msg1 ~msg2 =
     let xor c c' = chr ((ord c) lxor (ord c')) in
     String.mapi s ~f:(fun i c -> xor c s'.[i]) in
   let rec f v =
-    let inst, _ = G.V.label v in
+    let inst = inst_of_v v in
     match inst with
     | In1 -> msg1
     | In2 -> msg2
@@ -259,13 +274,13 @@ let eval t ~simple ~msg1 ~msg2 =
   in
   match t.phase with
   | Encode | Decode ->
-    let l = [find_vertex_by_inst t.g Out1;
-             find_vertex_by_inst t.g Out2;
-             find_vertex_by_inst t.g Fin1] in
-    let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
+    let l = [find_vertex_by_inst_exn t.g Out1;
+             find_vertex_by_inst_exn t.g Out2;
+             find_vertex_by_inst_exn t.g Fin1] in
+    let l = if simple then l else l @ [find_vertex_by_inst_exn t.g Fin2] in
     List.map l ~f
   | Tag ->
-    find_vertex_by_inst t.g Out1 |> f |> (fun x -> [x])
+    find_vertex_by_inst_exn t.g Out1 |> f |> (fun x -> [x])
 
 exception Unreversable of string
 
@@ -314,9 +329,9 @@ let reverse t =
   in
   let fchecks = fchecks phase in
   let f v (ctr, vs, checks) =
-    let inst, _ = G.V.label v in
-    let v' = G.V.create (inst_map inst, ref { typ = Bot; ctr = 0; (* array = [||] *) }) in
-    let inst', _ = G.V.label v' in
+    let inst = inst_of_v v in
+    let v' = create_v (inst_map inst) in
+    let inst' = inst_of_v v' in
     G.add_vertex g v';
     (* Give each vertex a unique mark, and make the two marks equal in both the
        old graph and the new graph, so that we can locate the same nodes between
@@ -335,13 +350,15 @@ let reverse t =
      privacy/authenticity. *)
   let _, vs, checks = G.fold_vertex f t.g (1, [], []) in
   let fold acc v =
-    let add_edge src dst = let e = G.E.create src () dst in G.add_edge_e g e in
+    let add_edge src dst =
+      Lgr.info "%s -> %s" (string_of_v src) (string_of_v dst);
+      G.add_edge_e g (G.E.create src () dst)
+    in
     let add_edge_and_mark src dst v =
       add_edge src dst; mark dst; mark v in
     let neighbors = List.append (G.succ t.g v) (G.pred t.g v) |> List.to_array in
     let v' = find_vertex g (G.Mark.get v) in
-    let inst, _ = G.V.label v in
-    match inst with
+    match inst_of_v v with
     | In1 | In2 | Fin1 | Fin2 ->
       assert (Array.length neighbors = 1);
       let n = neighbors.(0) in
@@ -416,7 +433,7 @@ let reverse t =
 let check_direction t =
   assert (t.phase = Encode);
   let t' = reverse t |> ok_exn in
-  let tbcs = find_all_vertices_by_inst t.g Tbc in
+  let tbcs = find_all_vertices_by_inst_exn t.g Tbc in
   let f v =
     let p = G.pred t.g v |> List.hd_exn in
     let v' = find_vertex t'.g (G.Mark.get v) in
@@ -430,7 +447,7 @@ let check_direction t =
    nodes *)
 let check_paths t =
   let c = Check.create t.g in
-  let f inst = find_vertex_by_inst t.g inst in
+  let f inst = find_vertex_by_inst_exn t.g inst in
   if Check.check_path c (f In1) (f Out1)
      && Check.check_path c (f In2) (f Out2) then Ok ()
   else Or_error.errorf "Redundant graph: Paths don't check out"
@@ -438,12 +455,12 @@ let check_paths t =
 (* Runs the Map function mapping nodes to (type, ctr) tuples *)
 let map t types rand ~simple =
   Lgr.info "Checking %s %b" (List.to_string ~f:string_of_typ (Array.to_list types)) rand;
-  let ntbc = find_all_vertices_by_inst t.g Tbc |> List.length in
+  let ntbc = find_all_vertices_by_inst_exn t.g Tbc |> List.length in
   let i = ref 0 in
   let max_ctr = ref 0 in
   begin
     let f inst typ =
-      let _, map = find_vertex_by_inst t.g inst |> G.V.label in
+      let map = find_vertex_by_inst_exn t.g inst |> map_of_v in
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
@@ -459,16 +476,15 @@ let map t types rand ~simple =
     Array.iter2_exn l types ~f:f
   end;
   let f v =
-    let inst, _ = G.V.label v in
-    match inst with
+    match inst_of_v v with
     | In1 | In2 | Ini1 | Ini2 -> ()
     | Fin1 | Fin2 | Out1 | Out2 | Dup ->
-      let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
-      let _, map = G.V.label v in
+      let pmap = G.pred t.g v |> List.hd_exn |> map_of_v in
+      let map = map_of_v v in
       map := !pmap
     | Tbc ->
-      let _, pmap = G.pred t.g v |> List.hd_exn |> G.V.label in
-      let _, map = G.V.label v in
+      let pmap = G.pred t.g v |> List.hd_exn |> map_of_v in
+      let map = map_of_v v in
       let array = Array.init ntbc ~f:(fun _ -> 0) in
       Array.set array !i 1;
       i := !i + 1;
@@ -482,11 +498,11 @@ let map t types rand ~simple =
         if List.length ps = 1 then List.nth_exn ps 0, List.nth_exn ps 0
         else List.nth_exn ps 0, List.nth_exn ps 1
       in
-      let _, p1map = G.V.label p1 in
-      let _, p2map = G.V.label p2 in
+      let p1map = map_of_v p1 in
+      let p2map = map_of_v p2 in
       let p1map, p2map =
         if !p1map.ctr < !p2map.ctr then !p2map, !p1map else !p1map, !p2map in
-      let _, map = G.V.label v in
+      let map = map_of_v v in
       (* let array = xor_array p1map.array p2map.array in *)
       if (p1map.typ = Zero && p2map.typ = Zero)
       || (p1map.typ = Zero && p2map.typ = One)
@@ -511,11 +527,11 @@ let map t types rand ~simple =
   in
   Topo.iter f' t.g
 
-(* Runs Map and checks that all nodes needing to be random are indeed marked
+(* Runs map and checks that all nodes needing to be random are indeed marked
    random *)
 let check t types rand checks ~simple =
   map t types rand ~simple;
-  let f v = let _, map = G.V.label v in !map.typ = Rand in
+  let f v = let map = map_of_v v in !map.typ = Rand in
   match List.for_all checks ~f with
   | true -> Ok ()
   | false -> Or_error.errorf "Graph insecure on inputs %s"
@@ -525,7 +541,7 @@ let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
   (* let f v = let _, map = G.V.label v in !map.array in *)
-  let ctr v = let _, map = G.V.label v in !map.ctr in
+  let ctr v = let map = map_of_v v in !map.ctr in
   match t.checks with
   | a :: b :: [] ->
     (* if not (Array.equal (f a) (f b) (fun i j -> i = j)) then Ok () *)
@@ -593,12 +609,11 @@ let is_secure t ~simple =
 
 let is_parallel t strong ~simple =
   Lgr.info "Checking parallelizability of %s graph" @@ string_of_phase t.phase;
-  let maxcost = if strong then 1 else List.length (find_all_vertices_by_inst t.g Tbc) in
+  let maxcost = if strong then 1 else List.length (find_all_vertices_by_inst_exn t.g Tbc) in
   let ini1, ini2 = ref 0, ref 0 in
   let pred v = G.pred t.g v |> List.hd_exn in
   let rec f v =
-    let inst, _ = G.V.label v in
-    match inst with
+    match inst_of_v v with
     | In1 | In2 -> 0
     | Ini1 -> !ini1
     | Ini2 -> !ini2
@@ -623,10 +638,10 @@ let is_parallel t strong ~simple =
   in
   match t.phase with
   | Encode | Decode ->
-    let l = [find_vertex_by_inst t.g Out1;
-             find_vertex_by_inst t.g Out2;
-             find_vertex_by_inst t.g Fin1] in
-    let l = if simple then l else l @ [find_vertex_by_inst t.g Fin2] in
+    let l = [find_vertex_by_inst_exn t.g Out1;
+             find_vertex_by_inst_exn t.g Out2;
+             find_vertex_by_inst_exn t.g Fin1] in
+    let l = if simple then l else l @ [find_vertex_by_inst_exn t.g Fin2] in
     let r = run_f l 0 0 in
     let new1, new2 = List.nth_exn r 2, List.nth_exn r 3 in
     if new1 > 0 || new2 > 0 then begin
@@ -643,13 +658,12 @@ let is_parallel t strong ~simple =
 
 let attack_vector t v =
   let d = match t.phase with Tag -> 2 | Encode | Decode -> 4 in
-  let tbcs = find_all_vertices_by_inst t.g Tbc in
+  let tbcs = find_all_vertices_by_inst_exn t.g Tbc in
   let ntbcs = List.length tbcs in
   let empty = Array.init (d + ntbcs) ~f:(fun _ -> false) in
   let rec f v =
-    let inst, _ = G.V.label v in
     let empty = Array.copy empty in
-    match inst with
+    match inst_of_v v with
     | Ini1 -> Array.set empty 0 true; empty
     | Ini2 -> Array.set empty 1 true; empty (* simple graphs don't have this *)
     | In1 -> Array.set empty 2 true; empty
@@ -671,14 +685,13 @@ let attack_vector t v =
         | _ -> assert false
       end
   in
-  let inst, _ = G.V.label v in
   let vector = f v in
-  Lgr.debug "  Vector for %s: %s" (string_of_inst inst)
+  Lgr.debug "  Vector for %s: %s" (string_of_v v)
     (Array.to_list vector |> List.to_string ~f:Bool.to_string);
   vector
 
 let attack_vector_by_inst t inst =
-  attack_vector t (find_vertex_by_inst t.g inst)
+  attack_vector t (find_vertex_by_inst_exn t.g inst)
 
 (* Extract TBC entries from array *)
 let tbc_entries d array = Array.slice array d (Array.length array)
@@ -709,7 +722,7 @@ let is_attack_dec _ tdec ~simple =
       Lgr.info "Checking attack on Dec graph";
       let c = Check.create tdec.g in
       let check v1 v2 = Check.check_path c v1 v2 in
-      let inst_to_v inst = find_vertex_by_inst tdec.g inst in
+      let inst_to_v inst = find_vertex_by_inst_exn tdec.g inst in
       let check_reachability () =
         (* If FIN1 cannot reach both INs, the scheme is insecure *)
         not (check (inst_to_v In1) (inst_to_v Fin1)
@@ -728,7 +741,7 @@ let is_attack_dec _ tdec ~simple =
           check false false || check false true
           || check true false || check true true
         in
-        let tbcs = find_all_vertices_by_inst tdec.g Tbc in
+        let tbcs = find_all_vertices_by_inst_exn tdec.g Tbc in
         let f inst =
           (* Get all TBC nodes reachable by 'inst' *)
           let tbcs = List.filter tbcs ~f:(fun v -> check v (inst_to_v inst)) in
@@ -767,3 +780,58 @@ let is_attack tenc tdec ttag ~simple =
   is_attack_tag tenc tdec ttag ~simple
   || is_attack_enc tenc ~simple
   || is_attack_dec tenc tdec ~simple
+
+let cryptol_of_g phase g =
+  G.Mark.clear g;
+  let mark v = G.Mark.set v 1 in
+  let is_marked v = G.Mark.get v = 1 in
+  let rec f v =
+    Lgr.info "Analyzing %s" (string_of_v v);
+    let pred = G.pred g v in
+    Lgr.info "Predecessors: %s" (List.to_string pred ~f:string_of_v);
+    if List.for_all pred ~f:(fun v -> is_marked v) then
+      begin
+        Lgr.info "Predecessors satisfied!";
+        mark v;
+        let cryptol = cryptol_of_v v in
+        cryptol := begin
+          match inst_of_v v with
+          | In1 -> "x1"
+          | In2 -> "x2"
+          | Ini1 -> "iv1"
+          | Ini2 -> "iv2"
+          | Fin1 | Fin2 | Out1 | Out2 | Dup ->
+            !(List.hd_exn pred |> cryptol_of_v)
+          | Xor ->
+            let cryptol = List.map pred ~f:(fun v -> !(cryptol_of_v v)) in
+            String.concat cryptol ~sep:" ^ "
+          | Tbc ->
+            let cryptol = List.hd_exn pred |> cryptol_of_v in
+            Printf.sprintf "E (%s)" !cryptol
+        end;
+        let succ = G.succ g v in
+        Lgr.info "Successors: %s" (List.to_string succ ~f:string_of_v);
+        List.iter succ ~f
+      end
+    else ()
+  in
+  let start = List.map [Ini1; Ini2; In1; In2] ~f:(find_vertex_by_inst g) in
+  let arr = List.filter_map ~f:ident start in
+  List.iter arr ~f;
+  let arr = List.map [Fin1; Fin2; Out1; Out2] ~f:(find_vertex_by_inst g) in
+  let f = function
+    | Some v -> Some !(cryptol_of_v v)
+    | None -> None in
+  let lhs = List.filter_map start ~f |> String.concat ~sep:", " in
+  let phase = match phase with
+    | Encode -> "enc"
+    | Decode -> "dec"
+    | Tag -> "tag" in
+  let rhs = List.filter_map arr ~f |> String.concat ~sep:", " in
+  Printf.sprintf "%s [%s] = [%s]" phase lhs rhs
+
+let emit encode decode tag =
+  let s = [cryptol_of_g encode.phase encode.g;
+           cryptol_of_g decode.phase decode.g;
+           cryptol_of_g tag.phase tag.g] in
+  Printf.sprintf "%s\n" (String.concat ~sep:"\n" s)
