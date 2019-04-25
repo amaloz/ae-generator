@@ -13,33 +13,40 @@ let string_of_typ = function
   | Rand -> "$"
 
 (* 'array' is used to avoid the issue detailed in Fig. 3.8 in the paper. *)
+(* XXX: I honestly don't recall what the above comment is about, but all the array stuff seems commented out.  ¯\_(ツ)_/¯ *)
 type map = { typ : typ; ctr : int; (* array : int array *) }
 
 module V = struct
-  (* Each vertex contains two elements: the instruction the vertex represents
-     and a map reference for checking security of the graph.  *)
-  (* XXX: Can we do this without storing the map ref within the vertex type? *)
-  type t = inst * map ref * string ref
+  (* Each vertex contains four elements:
+     1. the instruction the vertex represents
+     2. the "tweak", if the instruction is `Tbc`
+     3. a map reference for checking security of the graph
+     4. a string used when mapping the scheme to Cryptol
+  *)
+  type t = inst * int * map ref * string ref
 end
 module G = Graph.Imperative.Digraph.Abstract(V)
 module Topo = Graph.Topological.Make(G)
 module Check = Graph.Path.Check(G)
 
-let create_v inst =
-  G.V.create (inst, ref { typ = Bot; ctr = 0 }, ref "")
+let create_v ~tweak inst =
+  let tweak = if inst = Tbc then tweak else 0 in
+  G.V.create (inst, tweak, ref { typ = Bot; ctr = 0 }, ref "")
 
 let inst_of_v v =
-  let inst, _, _ = G.V.label v in inst
+  let inst, _, _, _ = G.V.label v in inst
+
+let tweak_of_v v =
+  let _, tweak, _, _ = G.V.label v in tweak
 
 let map_of_v v =
-  let _, map, _ = G.V.label v in map
+  let _, _, map, _ = G.V.label v in map
 
 let cryptol_of_v v =
-  let _, _, cryptol = G.V.label v in cryptol
+  let _, _, _, cryptol = G.V.label v in cryptol
 
 let string_of_v v =
-  let inst, _, _ = G.V.label v in
-  string_of_inst inst
+  inst_of_v v |> string_of_inst
 
 let string_of_e e =
   let src = G.E.src e |> inst_of_v in
@@ -96,16 +103,16 @@ type t = { g : G.t; phase : phase; checks : G.V.t list }
 let count t inst = find_all_vertices_by_inst_exn t.g inst |> List.length
 
 let create block phase =
+  Lgr.info "Creating %s graph from block" (string_of_phase phase);
   let open Or_error.Monad_infix in
   let s = Stack.create () in
   let g = G.create () in
   let errmsg op = sprintf "%s: Not enough items on stack" (string_of_op op) in
-  let fchecks = function
+  let fchecks = match phase with
     | Encode -> (fun i x acc -> if i = Out1 || i = Out2 then x :: acc else acc)
     | Decode -> (fun i x acc -> if i = Fin1 then [x] else acc)
     | Tag -> (fun i x acc -> if i = Out1 then [x] else acc)
   in
-  let fchecks = fchecks phase in
   let rec pop ~dst ~op = function
     | 0 -> Ok ()
     | n -> match Stack.pop s with
@@ -117,10 +124,12 @@ let create block phase =
     | 0 -> Ok ()
     | n -> Stack.push s dst; push ~dst (n - 1)
   in
+  let tweak = ref 1 in
   let f acc op =
     match op with
     | Inst i ->
-      let dst = create_v i in
+      let dst = create_v i ~tweak:(!tweak) in
+      if i = Tbc then tweak := Int.shift_left (!tweak) 1;
       G.add_vertex g dst;
       pop (AeInst.n_in op) ~dst ~op >>= fun () ->
       push (AeInst.n_out op) ~dst   >>= fun () ->
@@ -285,7 +294,7 @@ let eval t ~simple ~msg1 ~msg2 =
 exception Unreversable of string
 
 (* Find a vertex in 'g' with mark 'mark' *)
-let find_vertex g mark =
+let find_vertex_exn g mark =
   let f v = function
     | Some _ as a -> a
     | None -> if G.Mark.get v = mark then Some v else None
@@ -300,7 +309,7 @@ let reverse t =
   let phase = match t.phase with
     | Encode -> Decode
     | Decode -> Encode
-    | Tag -> assert false
+    | Tag -> failwith "Fatal: Tag graph cannot be reversed"
   in
   let inst_map = function
     | In1 -> Out1
@@ -316,7 +325,7 @@ let reverse t =
     G.Mark.set v (G.Mark.get v + 1000) in
   let is_marked v = G.Mark.get v > 1000 in
   let g = G.create () in
-  let fchecks = function
+  let fchecks = match phase with
     | Encode -> (fun inst v acc ->
         match inst with
         | Out1 | Out2 -> v :: acc
@@ -327,10 +336,10 @@ let reverse t =
         | _ -> acc)
     | Tag -> failwith "Fatal: Tag graph cannot be reversed"
   in
-  let fchecks = fchecks phase in
   let f v (ctr, vs, checks) =
     let inst = inst_of_v v in
-    let v' = create_v (inst_map inst) in
+    let tweak = tweak_of_v v in
+    let v' = create_v ~tweak (inst_map inst) in
     let inst' = inst_of_v v' in
     G.add_vertex g v';
     (* Give each vertex a unique mark, and make the two marks equal in both the
@@ -345,31 +354,28 @@ let reverse t =
     | _ -> (ctr + 1, v :: vs, checks)
   in
   (* Create initial copy graph containing all the vertices but no edges yet. *)
-  (* "vs" is the list we iterate over until empty or a fixed point is reached. *)
-  (* "checks" are the vertices to be checked when verifying
+  (* `vs` is the vertex list we iterate over until empty or a fixed point is
+     reached.checks` are the vertices to be checked when verifying
      privacy/authenticity. *)
   let _, vs, checks = G.fold_vertex f t.g (1, [], []) in
   let fold acc v =
-    let add_edge src dst =
-      Lgr.info "%s -> %s" (string_of_v src) (string_of_v dst);
-      G.add_edge_e g (G.E.create src () dst)
-    in
+    let add_edge src dst = G.add_edge_e g (G.E.create src () dst) in
     let add_edge_and_mark src dst v =
       add_edge src dst; mark dst; mark v in
     let neighbors = List.append (G.succ t.g v) (G.pred t.g v) |> List.to_array in
-    let v' = find_vertex g (G.Mark.get v) in
+    let v' = find_vertex_exn g (G.Mark.get v) in
     match inst_of_v v with
     | In1 | In2 | Fin1 | Fin2 ->
       assert (Array.length neighbors = 1);
       let n = neighbors.(0) in
-      let n' = find_vertex g (G.Mark.get n) in
+      let n' = find_vertex_exn g (G.Mark.get n) in
       if is_marked n' then (add_edge_and_mark n' v' v; acc)
       else v :: acc
     | Tbc ->
       assert (Array.length neighbors = 2);
       let n1, n2 = neighbors.(0), neighbors.(1) in
-      let n1' = find_vertex g (G.Mark.get n1) in
-      let n2' = find_vertex g (G.Mark.get n2) in
+      let n1' = find_vertex_exn g (G.Mark.get n1) in
+      let n2' = find_vertex_exn g (G.Mark.get n2) in
       begin
         match is_marked n1', is_marked n2' with
         | true, true -> raise (Unreversable "TBC: Both vertices marked")
@@ -382,9 +388,9 @@ let reverse t =
         raise (Unreversable "DUP: Only one outgoing edge")
       else
         let n1, n2, n3 = neighbors.(0), neighbors.(1), neighbors.(2) in
-        let n1' = find_vertex g (G.Mark.get n1) in
-        let n2' = find_vertex g (G.Mark.get n2) in
-        let n3' = find_vertex g (G.Mark.get n3) in
+        let n1' = find_vertex_exn g (G.Mark.get n1) in
+        let n2' = find_vertex_exn g (G.Mark.get n2) in
+        let n3' = find_vertex_exn g (G.Mark.get n3) in
         begin
           match is_marked n1', is_marked n2', is_marked n3' with
           | true, true, true | true, true, false
@@ -400,9 +406,9 @@ let reverse t =
         raise (Unreversable "XOR: Only one incoming edge")
       else
         let n1, n2, n3 = neighbors.(0), neighbors.(1), neighbors.(2) in
-        let n1' = find_vertex g (G.Mark.get n1) in
-        let n2' = find_vertex g (G.Mark.get n2) in
-        let n3' = find_vertex g (G.Mark.get n3) in
+        let n1' = find_vertex_exn g (G.Mark.get n1) in
+        let n2' = find_vertex_exn g (G.Mark.get n2) in
+        let n3' = find_vertex_exn g (G.Mark.get n3) in
         begin
           match is_marked n1', is_marked n2', is_marked n3' with
           | true, true, true ->
@@ -436,7 +442,7 @@ let check_direction t =
   let tbcs = find_all_vertices_by_inst_exn t.g Tbc in
   let f v =
     let p = G.pred t.g v |> List.hd_exn in
-    let v' = find_vertex t'.g (G.Mark.get v) in
+    let v' = find_vertex_exn t'.g (G.Mark.get v) in
     let p' = G.pred t'.g v' |> List.hd_exn in
     assert (G.Mark.get v = G.Mark.get v');
     G.Mark.get p = G.Mark.get p'
@@ -786,12 +792,9 @@ let cryptol_of_g phase g =
   let mark v = G.Mark.set v 1 in
   let is_marked v = G.Mark.get v = 1 in
   let rec f v =
-    Lgr.info "Analyzing %s" (string_of_v v);
     let pred = G.pred g v in
-    Lgr.info "Predecessors: %s" (List.to_string pred ~f:string_of_v);
     if List.for_all pred ~f:(fun v -> is_marked v) then
       begin
-        Lgr.info "Predecessors satisfied!";
         mark v;
         let cryptol = cryptol_of_v v in
         cryptol := begin
@@ -806,11 +809,11 @@ let cryptol_of_g phase g =
             let cryptol = List.map pred ~f:(fun v -> !(cryptol_of_v v)) in
             String.concat cryptol ~sep:" ^ "
           | Tbc ->
+            let tweak = tweak_of_v v in
             let cryptol = List.hd_exn pred |> cryptol_of_v in
-            Printf.sprintf "E (%s)" !cryptol
+            Printf.sprintf "E %d (%s)" tweak !cryptol
         end;
         let succ = G.succ g v in
-        Lgr.info "Successors: %s" (List.to_string succ ~f:string_of_v);
         List.iter succ ~f
       end
     else ()
