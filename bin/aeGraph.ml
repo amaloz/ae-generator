@@ -830,8 +830,14 @@ let cryptol_of_g phase g =
   let rhs = List.filter_map arr ~f |> String.concat ~sep:", " in
   Printf.sprintf "%s [%s] = [%s]" phase lhs rhs
 
-let emit encode decode tag =
+let emit ?(save=None) encode decode tag =
   let s = [cryptol_of_g encode.phase encode.g;
            cryptol_of_g decode.phase decode.g;
            cryptol_of_g tag.phase tag.g] in
-  Printf.sprintf "%s\n" (String.concat ~sep:"\n" s)
+  let cryptol = String.concat ~sep:"\n" s in
+  match save with
+  | Some file ->
+      Out_channel.with_file file ~f:(fun oc ->
+          Printf.fprintf oc "%s" cryptol
+        )
+  | None -> Printf.printf "%s\n" cryptol

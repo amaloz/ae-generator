@@ -1,6 +1,6 @@
 open AeInclude
 
-let version = "1.0"
+let version = "1.1"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
@@ -77,7 +77,7 @@ let spec_check =
   +> flag "-cost" (optional int)
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
-    ~doc:"FILE Save mode to FILE instead of displaying"
+    ~doc:"FILE Save to FILE"
   +> flag "-attack" no_arg
     ~doc:" Check if given mode has an attack"
   +> flag "-cryptol" no_arg
@@ -165,9 +165,8 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     AeGraph.display mode.encode mode.decode mode.tag ~save;
     Ok ()
   in
-  let fcryptol mode =
-    let s = AeGraph.emit mode.encode mode.decode mode.tag in
-    Printf.printf "%s" s;
+  let fcryptol mode save =
+    AeGraph.emit mode.encode mode.decode mode.tag ~save;
     Ok ()
   in
   let run_mode mode phase =
@@ -195,7 +194,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if attack then fattack mode else Ok () end        >>= fun () ->
     begin if check then fcheck mode else Ok () end          >>= fun () ->
-    begin if cryptol then fcryptol mode else Ok ()      end >>= fun () ->
+    begin if cryptol then fcryptol mode save else Ok ()      end >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
   let read_file file phase =
