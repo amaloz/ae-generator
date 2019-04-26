@@ -147,7 +147,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     else Ok ()
   in
   let fcryptol mode =
-    AeGraph.is_secure_cryptol mode.encode mode.decode mode.tag
+    AeGraph.is_secure_cryptol_all mode.encode mode.decode mode.tag
   in
   let fsecure mode =
     let f g = AeGraph.is_secure g ~simple in
@@ -282,11 +282,11 @@ let spec_synth =
     ~doc:" Print found schemes to stdout"
   +> flag "-attack" no_arg
     ~doc:" Synthesize schemes that we cannot find attacks to (rather than schemes we find secure)"
-  (* +> flag "-cryptol" no_arg
-   *   ~doc:" Check using cryptol + saw instead of the standard check" *)
+  +> flag "-cryptol" no_arg
+    ~doc:" Check using cryptol + saw instead of the standard check"
   ++ spec_common
 
-let run_synth encode decode size print attack simple debug () =
+let run_synth encode decode size print attack cryptol simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let run () =
@@ -297,7 +297,7 @@ let run_synth encode decode size print attack simple debug () =
       | false, true -> Ok false
       | false, false -> Or_error.errorf "One of -encode, -decode must be used"
     end >>| fun use_enc ->
-    AeSynth.synth ~use_enc ~simple ~print ~attack size
+    AeSynth.synth ~cryptol ~use_enc ~simple ~print ~attack size
   in
   match run () with
   | Ok _ -> ()

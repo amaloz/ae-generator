@@ -833,32 +833,54 @@ let cryptol_of_g phase g =
   | Decode -> Printf.sprintf "dec [%s] = [ %s ]" lhs rhs
   | Tag -> Printf.sprintf "tag [%s] = %s" lhs rhs
 
-let emit_cryptol fname encode decode tag =
+let emit_cryptol_all fname encode decode tag =
   let s = [cryptol_of_g encode.phase encode.g;
            cryptol_of_g decode.phase decode.g;
            cryptol_of_g tag.phase tag.g] in
   let cryptol = String.concat ~sep:"\n" s in
   Out_channel.with_file fname ~f:(fun oc ->
-      Printf.fprintf oc "%s\n" AeCryptol.cryptol_header;
+      Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [Encode; Decode; Tag];
       Printf.fprintf oc "%s\n" cryptol
     )
 
-let emit_saw cryptol fname =
+let emit_saw cryptol fname phases =
   Out_channel.with_file fname ~f:(fun oc ->
       Printf.fprintf oc "import \"%s\";" cryptol;
-      Printf.fprintf oc "%s" AeCryptol.saw_file;
+      Printf.fprintf oc "%s" @@ AeCryptol.saw_file phases;
     )
 
-let is_secure_cryptol encode decode tag =
-  let cryptol = Filename.temp_file "cryptol" ".cry" in
-  Lgr.info "Cryptol filename = %s" cryptol;
-  let saw = Filename.temp_file "saw" ".cry" in
-  Lgr.info "Saw filename = %s" saw;
-  emit_cryptol cryptol encode decode tag;
-  emit_saw cryptol saw;
-  let command = "saw " ^ saw in
+let run_saw fname =
+  let command =
+    ["saw"; fname; if Lgr.get_log_level () <> Lgr.DEBUG then "> /dev/null" else ""] in
+  let command = String.concat ~sep:" " command in
   let code = Sys.command command in
   if code <> 0 then
-    Or_error.errorf "Failed to verify scheme using cryptol/saw"
+    Or_error.errorf "Failed to verify scheme using cryptol + saw"
   else
     Ok ()
+
+let is_secure_cryptol t =
+  let str = cryptol_of_g t.phase t.g in
+  let cryptol = Filename.temp_file "cryptol" ".cry" in
+  Lgr.info "Cryptol filename = %s" cryptol;
+  let saw = Filename.temp_file "saw" ".saw" in
+  Lgr.info "Saw filename = %s" saw;
+  Out_channel.with_file cryptol ~f:(fun oc ->
+      Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [t.phase];
+      Printf.fprintf oc "%s\n" str
+    );
+  emit_saw cryptol saw [t.phase];
+  run_saw saw
+
+let is_secure_cryptol_all encode decode tag =
+  let open Or_error.Monad_infix in
+  is_secure_cryptol encode >>= fun () ->
+  is_secure_cryptol decode >>= fun () ->
+  is_secure_cryptol tag
+  (* let cryptol = Filename.temp_file "cryptol" ".cry" in
+   * Lgr.info "Cryptol filename = %s" cryptol;
+   * let saw = Filename.temp_file "saw" ".saw" in
+   * Lgr.info "Saw filename = %s" saw;
+   * emit_cryptol_all cryptol encode decode tag;
+   * emit_saw cryptol saw [Encode; Decode; Tag];
+   * run_saw saw *)
