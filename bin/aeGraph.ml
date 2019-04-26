@@ -124,7 +124,7 @@ let create block phase =
     | 0 -> Ok ()
     | n -> Stack.push s dst; push ~dst (n - 1)
   in
-  let tweak = ref 1 in
+  let tweak = ref 2 in
   let f acc op =
     match op with
     | Inst i ->
@@ -470,7 +470,7 @@ let map t types rand ~simple =
       let f = function
         | Rand -> max_ctr := 1; 1
         | _ -> 0 in
-      map := { typ; ctr = f typ; (* array = Array.init ntbc (fun _ -> 0) *) }
+      map := { typ; ctr = f typ; }
     in
     let l =
       match t.phase with
@@ -496,8 +496,8 @@ let map t types rand ~simple =
       i := !i + 1;
       if rand || !pmap.typ = One || !pmap.typ = Rand then begin
         max_ctr := !max_ctr + 1;
-        map := { typ = Rand; ctr = !max_ctr; (* array *) }
-      end else map := { typ = !pmap.typ; ctr = !pmap.ctr; (* array *) }
+        map := { typ = Rand; ctr = !max_ctr; }
+      end else map := { typ = !pmap.typ; ctr = !pmap.ctr; }
     | Xor ->
       let ps = G.pred t.g v in
       let p1, p2 =
@@ -519,11 +519,11 @@ let map t types rand ~simple =
           | Zero, One | One, Zero -> One
           | _ , _ -> assert false
         in
-        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; (* array *) }
+        map := { typ = xor_types (p1map.typ, p2map.typ); ctr = p1map.ctr; }
       else if p1map.typ = Rand && p1map.ctr > p2map.ctr then
-        map := { typ = Rand; ctr = p1map.ctr; (* array *) }
+        map := { typ = Rand; ctr = p1map.ctr; }
       else
-        map := { typ = Bot; ctr = p1map.ctr; (* array *) }
+        map := { typ = Bot; ctr = p1map.ctr; }
   in
   let f' v =
     f v;
@@ -546,11 +546,9 @@ let check t types rand checks ~simple =
 let is_secure_encode t types ~simple =
   let open Or_error.Monad_infix in
   check t types true t.checks ~simple >>= fun () ->
-  (* let f v = let _, map = G.V.label v in !map.array in *)
   let ctr v = let map = map_of_v v in !map.ctr in
   match t.checks with
   | a :: b :: [] ->
-    (* if not (Array.equal (f a) (f b) (fun i j -> i = j)) then Ok () *)
     if ctr a <> ctr b then Ok ()
     else Or_error.errorf "Encode graph insecure: counters are equal"
   | _ -> assert false
@@ -811,36 +809,56 @@ let cryptol_of_g phase g =
           | Tbc ->
             let tweak = tweak_of_v v in
             let cryptol = List.hd_exn pred |> cryptol_of_v in
-            Printf.sprintf "E %d (%s)" tweak !cryptol
+            Printf.sprintf "(E %d (%s))" tweak !cryptol
         end;
         let succ = G.succ g v in
         List.iter succ ~f
       end
     else ()
   in
-  let start = List.map [Ini1; Ini2; In1; In2] ~f:(find_vertex_by_inst g) in
-  let arr = List.filter_map ~f:ident start in
-  List.iter arr ~f;
-  let arr = List.map [Fin1; Fin2; Out1; Out2] ~f:(find_vertex_by_inst g) in
-  let f = function
+  let lhs = if phase = Tag then [Ini1; Ini2] else [Ini1; Ini2; In1; In2] in
+  let lhs = List.map lhs ~f:(find_vertex_by_inst g) in
+  List.filter_map ~f:ident lhs |> List.iter ~f;
+  let rhs = List.map [Fin1; Fin2; Out1; Out2] ~f:(find_vertex_by_inst g) in
+  let f default = function
+    | Some v -> !(cryptol_of_v v)
+    | None -> default in
+  let lhs = List.map lhs ~f:(f "_") |> String.concat ~sep:", " in
+  let f phase default = function
     | Some v -> Some !(cryptol_of_v v)
-    | None -> None in
-  let lhs = List.filter_map start ~f |> String.concat ~sep:", " in
-  let phase = match phase with
-    | Encode -> "enc"
-    | Decode -> "dec"
-    | Tag -> "tag" in
-  let rhs = List.filter_map arr ~f |> String.concat ~sep:", " in
-  Printf.sprintf "%s [%s] = [%s]" phase lhs rhs
+    | None -> if phase = Tag then None else Some default in
+  let rhs = List.filter_map rhs ~f:(f phase "0") |> String.concat ~sep:", " in
+  match phase with
+  | Encode -> Printf.sprintf "enc [%s] = [ %s ]" lhs rhs
+  | Decode -> Printf.sprintf "dec [%s] = [ %s ]" lhs rhs
+  | Tag -> Printf.sprintf "tag [%s] = %s" lhs rhs
 
-let emit ?(save=None) encode decode tag =
+let emit_cryptol fname encode decode tag =
   let s = [cryptol_of_g encode.phase encode.g;
            cryptol_of_g decode.phase decode.g;
            cryptol_of_g tag.phase tag.g] in
   let cryptol = String.concat ~sep:"\n" s in
-  match save with
-  | Some file ->
-      Out_channel.with_file file ~f:(fun oc ->
-          Printf.fprintf oc "%s" cryptol
-        )
-  | None -> Printf.printf "%s\n" cryptol
+  Out_channel.with_file fname ~f:(fun oc ->
+      Printf.fprintf oc "%s\n" AeCryptol.cryptol_header;
+      Printf.fprintf oc "%s\n" cryptol
+    )
+
+let emit_saw cryptol fname =
+  Out_channel.with_file fname ~f:(fun oc ->
+      Printf.fprintf oc "import \"%s\";" cryptol;
+      Printf.fprintf oc "%s" AeCryptol.saw_file;
+    )
+
+let is_secure_cryptol encode decode tag =
+  let cryptol = Filename.temp_file "cryptol" ".cry" in
+  Lgr.info "Cryptol filename = %s" cryptol;
+  let saw = Filename.temp_file "saw" ".cry" in
+  Lgr.info "Saw filename = %s" saw;
+  emit_cryptol cryptol encode decode tag;
+  emit_saw cryptol saw;
+  let command = "saw " ^ saw in
+  let code = Sys.command command in
+  if code <> 0 then
+    Or_error.errorf "Failed to verify scheme using cryptol/saw"
+  else
+    Ok ()

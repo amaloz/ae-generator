@@ -81,7 +81,7 @@ let spec_check =
   +> flag "-attack" no_arg
     ~doc:" Check if given mode has an attack"
   +> flag "-cryptol" no_arg
-    ~doc:" Emit cryptol code"
+    ~doc:" Check if given mode is secure using cryptol + saw"
   ++ spec_common
 
 let run_check mode encode decode tag check display eval dec_file enc_file
@@ -146,7 +146,10 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       Or_error.errorf "Attack found"
     else Ok ()
   in
-  let fcheck mode =
+  let fcryptol mode =
+    AeGraph.is_secure_cryptol mode.encode mode.decode mode.tag
+  in
+  let fsecure mode =
     let f g = AeGraph.is_secure g ~simple in
     f mode.encode >>= fun () ->
     f mode.decode >>= fun () ->
@@ -163,10 +166,6 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let fdisplay mode save =
     AeGraph.display mode.encode mode.decode mode.tag ~save;
-    Ok ()
-  in
-  let fcryptol mode save =
-    AeGraph.emit mode.encode mode.decode mode.tag ~save;
     Ok ()
   in
   let run_mode mode phase =
@@ -193,8 +192,8 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     prune mode                                              >>= fun () ->
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if attack then fattack mode else Ok () end        >>= fun () ->
-    begin if check then fcheck mode else Ok () end          >>= fun () ->
-    begin if cryptol then fcryptol mode save else Ok ()      end >>= fun () ->
+    begin if check then fsecure mode else Ok () end         >>= fun () ->
+    begin if cryptol then fcryptol mode else Ok () end      >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
   let read_file file phase =
@@ -213,7 +212,10 @@ let run_check mode encode decode tag check display eval dec_file enc_file
         | Error _ -> (count + 1, acc)
     in
     let f ic = In_channel.fold_lines ic ~init:(0, []) ~f:fold in
-    let total, blocks = In_channel.with_file file ~f in
+    begin
+      try Ok (In_channel.with_file file ~f) with
+        Sys_error s -> Or_error.errorf "%s" s
+    end >>= fun (total, blocks) ->
     let use_enc = match phase with
       | Encode -> true | Decode -> false | Tag -> assert false in
     let blocks = AeSynth.remove_dups blocks ~use_enc ~simple in
@@ -254,7 +256,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     end >>= fun () ->
     match enc_file, dec_file with
     | Some _, Some _ ->
-      Or_error.errorf "Only one of -dec-file, -enc-file can be used\n%!"
+      Or_error.errorf "Only one of -dec-file, -enc-file can be used"
     | Some file, None -> read_file file Encode
     | None, Some file -> read_file file Decode
     | None, None -> get_mode mode >>= fun mode' ->
@@ -280,6 +282,8 @@ let spec_synth =
     ~doc:" Print found schemes to stdout"
   +> flag "-attack" no_arg
     ~doc:" Synthesize schemes that we cannot find attacks to (rather than schemes we find secure)"
+  (* +> flag "-cryptol" no_arg
+   *   ~doc:" Check using cryptol + saw instead of the standard check" *)
   ++ spec_common
 
 let run_synth encode decode size print attack simple debug () =
