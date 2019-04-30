@@ -56,8 +56,7 @@ let string_of_e e =
 
 let full_string_of_v v =
   let map = map_of_v v in
-  [string_of_typ !map.typ; Int.to_string !map.ctr;
-   (* Array.to_list !map.array |> List.to_string ~f:Int.to_string *)]
+  [string_of_typ !map.typ; Int.to_string !map.ctr]
   |> List.append [string_of_v v] |> String.concat ~sep:" "
 
 let find_vertex_by_inst g inst =
@@ -805,7 +804,7 @@ let cryptol_of_g phase g =
             !(List.hd_exn pred |> cryptol_of_v)
           | Xor ->
             let cryptol = List.map pred ~f:(fun v -> !(cryptol_of_v v)) in
-            String.concat cryptol ~sep:" ^ "
+            Printf.sprintf "(%s)" @@ String.concat cryptol ~sep:" ^ "
           | Tbc ->
             let tweak = tweak_of_v v in
             let cryptol = List.hd_exn pred |> cryptol_of_v in
