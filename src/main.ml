@@ -1,6 +1,8 @@
 open AeInclude
 
-let version = "@@VERSION@@"
+let name = "%%NAME%%"
+let version = "%%VERSION%%"
+let author = "%%PKG_AUTHORS%%"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
@@ -317,12 +319,14 @@ encode algorithms, and using `-decode` synthesizes decode algorithms.")
         | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err)
     ]
 
-let command =
+let main =
   Command.group
     ~summary:"Authenticated encryption scheme prover/synthesizer."
     ["check", check; "synth", synth]
 
 let _ =
   Exn.handle_uncaught ~exit:true (fun () ->
-      Command.run ~version:version command
+      Command.run main
+        ~version:version
+        ~build_info:(Printf.sprintf "%s (author: %s)" name author)
     )
