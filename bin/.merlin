@@ -40,7 +40,7 @@ B /home/amaloz/.opam/default/lib/variantslib
 B /home/amaloz/.opam/default/lib/zarith
 B /usr/lib/ocaml
 B /usr/lib/ocaml/threads
-B ../_build/default/bin/.main.eobjs/byte
+B ../_build/default/bin/.aesynth.eobjs/byte
 S /home/amaloz/.opam/default/lib/base
 S /home/amaloz/.opam/default/lib/base/caml
 S /home/amaloz/.opam/default/lib/base/md5

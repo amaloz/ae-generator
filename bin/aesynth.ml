@@ -1,6 +1,6 @@
 open AeInclude
 
-let version = "1.0"
+let version = "1.1"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
@@ -61,7 +61,7 @@ let spec_check =
   +> flag "-check" no_arg
     ~doc:" Check if given mode is secure"
   +> flag "-display" no_arg
-    ~doc:" Display given mode as a graph (needs 'gvpack', 'dot', and 'feh')"
+    ~doc:" Display given mode as a graph (assumes 'gvpack', 'dot', and 'feh' are installed)"
   +> flag "-eval" no_arg
     ~doc:" Evaluate the given mode"
   +> flag "-dec-file" (optional string)
@@ -77,13 +77,15 @@ let spec_check =
   +> flag "-cost" (optional int)
     ~doc:"N Filters out modes with cost greater than N"
   +> flag "-save" (optional string)
-    ~doc:"FILE Save mode to FILE instead of displaying"
+    ~doc:"FILE Save to FILE"
   +> flag "-attack" no_arg
     ~doc:" Check if given mode has an attack"
+  +> flag "-cryptol" no_arg
+    ~doc:" Check if given mode is secure using cryptol + saw (assumes 'saw' is installed)"
   ++ spec_common
 
 let run_check mode encode decode tag check display eval dec_file enc_file
-    parallel strong forward cost save attack simple debug () =
+    parallel strong forward cost save attack cryptol simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let get_mode = function
@@ -117,7 +119,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let check_parallel mode =
     if AeGraph.is_parallel mode.encode strong ~simple
-       && AeGraph.is_parallel mode.decode strong ~simple
+    && AeGraph.is_parallel mode.decode strong ~simple
     then Ok ()
     else Or_error.errorf "Not %s parallelizable"
         (if strong then "strongly" else "weakly")
@@ -144,8 +146,10 @@ let run_check mode encode decode tag check display eval dec_file enc_file
       Or_error.errorf "Attack found"
     else Ok ()
   in
-
-  let fcheck mode =
+  let fcryptol mode =
+    AeGraph.is_secure_cryptol_all mode.encode mode.decode mode.tag
+  in
+  let fsecure mode =
     let f g = AeGraph.is_secure g ~simple in
     f mode.encode >>= fun () ->
     f mode.decode >>= fun () ->
@@ -188,7 +192,8 @@ let run_check mode encode decode tag check display eval dec_file enc_file
     prune mode                                              >>= fun () ->
     begin if display then fdisplay mode save else Ok () end >>= fun () ->
     begin if attack then fattack mode else Ok () end        >>= fun () ->
-    begin if check then fcheck mode else Ok () end          >>= fun () ->
+    begin if check then fsecure mode else Ok () end         >>= fun () ->
+    begin if cryptol then fcryptol mode else Ok () end      >>= fun () ->
     begin if eval then feval mode else Ok () end
   in
   let read_file file phase =
@@ -207,7 +212,10 @@ let run_check mode encode decode tag check display eval dec_file enc_file
         | Error _ -> (count + 1, acc)
     in
     let f ic = In_channel.fold_lines ic ~init:(0, []) ~f:fold in
-    let total, blocks = In_channel.with_file file ~f in
+    begin
+      try Ok (In_channel.with_file file ~f) with
+        Sys_error s -> Or_error.errorf "%s" s
+    end >>= fun (total, blocks) ->
     let use_enc = match phase with
       | Encode -> true | Decode -> false | Tag -> assert false in
     let blocks = AeSynth.remove_dups blocks ~use_enc ~simple in
@@ -243,12 +251,12 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   let run () =
     begin
-      if attack || check || display || eval then Ok ()
-      else Or_error.errorf "One of -attack, -check, -display, -eval must be used"
+      if attack || check || display || eval || cryptol then Ok ()
+      else Or_error.errorf "One of -attack, -check, -display, -eval, or -cryptol must be used"
     end >>= fun () ->
     match enc_file, dec_file with
     | Some _, Some _ ->
-      Or_error.errorf "Only one of -dec-file, -enc-file can be used\n%!"
+      Or_error.errorf "Only one of -dec-file, -enc-file can be used"
     | Some file, None -> read_file file Encode
     | None, Some file -> read_file file Decode
     | None, None -> get_mode mode >>= fun mode' ->
@@ -274,9 +282,11 @@ let spec_synth =
     ~doc:" Print found schemes to stdout"
   +> flag "-attack" no_arg
     ~doc:" Synthesize schemes that we cannot find attacks to (rather than schemes we find secure)"
+  +> flag "-cryptol" no_arg
+    ~doc:" Check using cryptol + saw instead of the standard check"
   ++ spec_common
 
-let run_synth encode decode size print attack simple debug () =
+let run_synth encode decode size print attack cryptol simple debug () =
   set_log_level debug;
   let open Or_error.Monad_infix in
   let run () =
@@ -287,7 +297,7 @@ let run_synth encode decode size print attack simple debug () =
       | false, true -> Ok false
       | false, false -> Or_error.errorf "One of -encode, -decode must be used"
     end >>| fun use_enc ->
-    AeSynth.synth ~use_enc ~simple ~print ~attack size
+    AeSynth.synth ~cryptol ~use_enc ~simple ~print ~attack size
   in
   match run () with
   | Ok _ -> ()
