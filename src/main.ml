@@ -1,6 +1,6 @@
 open AeInclude
 
-let version = "1.2"
+let version = "@@VERSION@@"
 
 type mode = { encode : AeGraph.t; decode : AeGraph.t; tag : AeGraph.t }
 
