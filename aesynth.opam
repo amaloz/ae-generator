@@ -15,7 +15,7 @@ depends: [
   "dune" {build}
 ]
 build: [
-  [dune "subst"] {pinned}
-  [dune "build" "-p" name]
+  ["dune" "subst"] {pinned}
+  ["dune" "build" "-p" name]
 ]
 synopsis: "Authenticated encryption prover / synthesizer"
