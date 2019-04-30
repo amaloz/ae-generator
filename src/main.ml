@@ -201,7 +201,7 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
           begin if eval then feval mode else Ok () end
         in
         let read_file file phase =
-          assert (attack || check || display || eval);
+          assert (attack || check || display || eval || cryptol);
           let fold (count, acc) line =
             if line = "" || String.contains ~pos:0 ~len:1 line '#' then (count, acc)
             else
