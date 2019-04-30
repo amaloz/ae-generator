@@ -1,5 +1,6 @@
 a.out
 _build
+aesynth.install
 *.annot
 *.cmo
 *.cma

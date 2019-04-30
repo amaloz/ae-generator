@@ -1,20 +1,34 @@
-# Authenticated Encryption Scheme Prover/Synthesizer
+# `aesynth`: An authenticated encryption scheme prover/synthesizer
 
-This implements the algorithm presented in <https://eprint.iacr.org/2015/624>.
+`aesynth` implements the algorithm presented in
+<https://eprint.iacr.org/2015/624>. It comes in two modes: `aesynth check`
+checks the security of a given mode, and `aesynth synth` synthesizes modes of
+specific lengths.
 
 ## Installation Instructions
 
-To use, install the following OCaml packages:
+To build, you'll need either `opam` or `dune` installed.
 
-> core, cryptokit, dolog, dune, ocamlgraph
+### Building using `opam`
 
-To build:
+Run the following:
 
-> dune build bin/main.exe
+> opam install .
 
-To run:
+This installs `aesynth` to your `opam` install directory, and thus, assuming
+that directory is in your path, you can directly execute `aesynth` from the
+command line.
 
-> dune exec bin/main.exe
+### Building using `dune`
+
+Run the following:
+
+> dune build -p aesynth
+
+This won't install `aesynth` locally, and so to run `aesynth` you need to
+execute the following:
+
+> dune exec aesynth --
 
 ## License
 

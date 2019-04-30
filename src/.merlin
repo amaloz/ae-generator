@@ -40,7 +40,7 @@ B /home/amaloz/.opam/default/lib/variantslib
 B /home/amaloz/.opam/default/lib/zarith
 B /usr/lib/ocaml
 B /usr/lib/ocaml/threads
-B ../_build/default/src/.aesynth.eobjs/byte
+B ../_build/default/src/.main.eobjs/byte
 S /home/amaloz/.opam/default/lib/base
 S /home/amaloz/.opam/default/lib/base/caml
 S /home/amaloz/.opam/default/lib/base/md5
@@ -83,4 +83,5 @@ S /home/amaloz/.opam/default/lib/zarith
 S /usr/lib/ocaml
 S /usr/lib/ocaml/threads
 S .
+FLG -ppx '/home/amaloz/prog/ae-generator/_build/default/.ppx/0af9cc0ed9166d3107af7264d5703b53/ppx.exe --as-ppx'
 FLG -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs
