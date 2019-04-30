@@ -1,3 +1,8 @@
 (executable
  (name aesynth)
  (libraries core cryptokit dolog ocamlgraph threads))
+
+(install
+ (section bin)
+ (files
+  (aesynth.exe as aesynth)))
