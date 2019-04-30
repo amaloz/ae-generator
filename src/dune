@@ -1,8 +1,5 @@
 (executable
  (name aesynth)
+ (package aesynth)
+ (public_name aesynth)
  (libraries core cryptokit dolog ocamlgraph threads))
-
-(install
- (section bin)
- (files
-  (aesynth as aesynth)))
