@@ -832,15 +832,15 @@ let cryptol_of_g phase g =
   | Decode -> Printf.sprintf "dec [%s] = [ %s ]" lhs rhs
   | Tag -> Printf.sprintf "tag [%s] = %s" lhs rhs
 
-let emit_cryptol_all fname encode decode tag =
-  let s = [cryptol_of_g encode.phase encode.g;
-           cryptol_of_g decode.phase decode.g;
-           cryptol_of_g tag.phase tag.g] in
-  let cryptol = String.concat ~sep:"\n" s in
-  Out_channel.with_file fname ~f:(fun oc ->
-      Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [Encode; Decode; Tag];
-      Printf.fprintf oc "%s\n" cryptol
-    )
+(* let emit_cryptol_all fname encode decode tag =
+ *   let s = [cryptol_of_g encode.phase encode.g;
+ *            cryptol_of_g decode.phase decode.g;
+ *            cryptol_of_g tag.phase tag.g] in
+ *   let cryptol = String.concat ~sep:"\n" s in
+ *   Out_channel.with_file fname ~f:(fun oc ->
+ *       Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [Encode; Decode; Tag] 8;
+ *       Printf.fprintf oc "%s\n" cryptol
+ *     ) *)
 
 let emit_saw cryptol fname phases =
   Out_channel.with_file fname ~f:(fun oc ->
@@ -858,24 +858,27 @@ let run_saw fname =
   else
     Ok ()
 
-let is_secure_cryptol t =
+let is_secure_cryptol t ~fname ~bitlength =
   let str = cryptol_of_g t.phase t.g in
-  let cryptol = Filename.temp_file "cryptol" ".cry" in
+  let prefix = match fname with
+    | Some fname -> fname
+    | None -> Filename.temp_file "" "" in
+  let cryptol = String.concat ~sep:"." [prefix; "cry"] in
   Lgr.info "Cryptol filename = %s" cryptol;
-  let saw = Filename.temp_file "saw" ".saw" in
+  let saw = String.concat ~sep:"." [prefix; "saw"] in
   Lgr.info "Saw filename = %s" saw;
   Out_channel.with_file cryptol ~f:(fun oc ->
-      Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [t.phase];
+      Printf.fprintf oc "%s\n" @@ AeCryptol.cryptol_header [t.phase] ~bitlength;
       Printf.fprintf oc "%s\n" str
     );
   emit_saw cryptol saw [t.phase];
   run_saw saw
 
-let is_secure_cryptol_all encode decode tag =
+let is_secure_cryptol_all encode decode tag ~fname ~bitlength =
   let open Or_error.Monad_infix in
-  is_secure_cryptol encode >>= fun () ->
-  is_secure_cryptol decode >>= fun () ->
-  is_secure_cryptol tag
+  is_secure_cryptol encode ~fname ~bitlength >>= fun () ->
+  is_secure_cryptol decode ~fname ~bitlength >>= fun () ->
+  is_secure_cryptol tag ~fname ~bitlength
   (* let cryptol = Filename.temp_file "cryptol" ".cry" in
    * Lgr.info "Cryptol filename = %s" cryptol;
    * let saw = Filename.temp_file "saw" ".saw" in

@@ -66,7 +66,7 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
       and check = flag "check" no_arg
           ~doc:" check if given mode is secure"
       and display = flag "display" no_arg
-          ~doc:" display given mode as a graph (~aliases `gvpack`, `dot`, and `feh` to be installed)"
+          ~doc:" display given mode as a graph (assumes `gvpack`, `dot`, and `feh` are installed)"
       and eval = flag "eval" no_arg
           ~doc:" evaluate the given mode"
       and decfile = flag "dec-file" (optional string)
@@ -87,6 +87,8 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
           ~doc:" check if given mode has an attack"
       and cryptol = flag "cryptol" no_arg
           ~doc:" check if given mode is secure using cryptol + saw (assumes 'saw' is installed)"
+      and bitlength = flag "bitlength" (optional_with_default 8 int)
+          ~doc:"N specify the bitlength of the blockcipher when generating cryptol code (use in conjunction with -cryptol flag)"
       and simple = flag "simple" no_arg
           ~doc:" use simplified modes (no INI2 and FIN2 nodes)"
       and debug = flag "debug" (optional_with_default 0 debug)
@@ -99,7 +101,7 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
           | None -> begin
               match encode, decode, tag with
               | Some _, Some _, _ ->
-                Or_error.errorf "Only one of -encode, -decode can be used"
+                Or_error.errorf "Only one of -encode, -decode, -mode can be used"
               | Some block, None, _
               | None, Some block, _ ->
                 let tag = match tag with
@@ -108,7 +110,7 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
                 in
                 Ok (AeModes.create block tag)
               | None, None, _ ->
-                Or_error.errorf "One of -encode, -decode must be used"
+                Or_error.errorf "One of -encode, -decode, -mode must be used"
             end
         in
         let get_phase = function
@@ -153,7 +155,7 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
           else Ok ()
         in
         let fcryptol mode =
-          AeGraph.is_secure_cryptol_all mode.encode mode.decode mode.tag
+          AeGraph.is_secure_cryptol_all mode.encode mode.decode mode.tag ~fname:save ~bitlength
         in
         let fsecure mode =
           let f g = AeGraph.is_secure g ~simple in
@@ -195,11 +197,11 @@ Using the `-simple` flag removes INI2 and FIN2 from the available instructions."
             | Tag -> assert false
           end                               >>= fun (encode, decode, tag) ->
           let mode = { encode; decode; tag } in
-          prune mode                                              >>= fun () ->
-          begin if display then fdisplay mode save else Ok () end >>= fun () ->
-          begin if attack then fattack mode else Ok () end        >>= fun () ->
-          begin if check then fsecure mode else Ok () end         >>= fun () ->
-          begin if cryptol then fcryptol mode else Ok () end      >>= fun () ->
+          prune mode                                                    >>= fun () ->
+          begin if display then fdisplay mode save else Ok () end       >>= fun () ->
+          begin if attack then fattack mode else Ok () end              >>= fun () ->
+          begin if check then fsecure mode else Ok () end               >>= fun () ->
+          begin if cryptol then fcryptol mode else Ok () end >>= fun () ->
           begin if eval then feval mode else Ok () end
         in
         let read_file file phase =
@@ -296,6 +298,8 @@ encode algorithms, and using `-decode` synthesizes decode algorithms.")
           ~doc:" synthesize schemes that we cannot find attacks to (rather than schemes we find secure)"
       and cryptol = flag "cryptol" no_arg
           ~doc:" check using a cryptol + saw encoding of the rules (requires `saw` to be installed)"
+      and bitlength = flag "bitlength" (optional_with_default 8 int)
+          ~doc:"N specify the bitlength of the blockcipher when generating cryptol code (use in conjunction with -cryptol flag)"
       and simple = flag "simple" no_arg
           ~doc:" use simplified modes (no INI2 and FIN2 nodes)"
       and debug = flag "debug" (optional_with_default 0 debug)
@@ -312,7 +316,7 @@ encode algorithms, and using `-decode` synthesizes decode algorithms.")
             | false, true -> Ok false
             | false, false -> Or_error.errorf "One of -encode, -decode must be used"
           end >>| fun use_enc ->
-          AeSynth.synth ~cryptol ~use_enc ~simple ~print ~attack size
+          AeSynth.synth ~cryptol ~use_enc ~simple ~print ~attack ~bitlength size
         in
         match run () with
         | Ok _ -> ()

@@ -137,9 +137,9 @@ let start_perms_simple = permutations [Inst Ini1; Inst In1; Inst In2]
 let term_perms = permutations [Inst Fin1; Inst Fin2; Inst Out1; Inst Out2]
 let term_perms_simple = permutations [Inst Fin1; Inst Out1; Inst Out2]
 
-let fprocess ~cryptol ~use_enc ~simple =
+let fprocess ~cryptol ~use_enc ~simple ~bitlength =
   let open Or_error.Monad_infix in
-  let is_secure = if cryptol then AeGraph.is_secure_cryptol else AeGraph.is_secure ~simple in
+  let is_secure = if cryptol then AeGraph.is_secure_cryptol ~fname:None ~bitlength else AeGraph.is_secure ~simple in
   if use_enc then
     fun block ->
       AeGraph.create block Encode      >>= fun encode ->
@@ -265,11 +265,11 @@ and loop acc ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~attack =
       ~f:(fold ~fprocess ~simple ~maxsize ~depth ~ninputs ~block ~counts ~attack)
   | _ -> acc
 
-let synth size ~cryptol ~use_enc ~simple ~print ~attack =
+let synth size ~cryptol ~use_enc ~simple ~print ~attack ~bitlength =
   let counts = if simple then counts_simple else counts in
   let fprocess = if attack
     then fprocess' ~use_enc ~simple
-    else fprocess ~cryptol ~use_enc ~simple in
+    else fprocess ~cryptol ~use_enc ~simple ~bitlength in
   let f acc op =
     let blocks = fold ~fprocess ~simple ~maxsize:size ~depth:size ~ninputs:0
         ~block:[] ~counts ~attack [] op in

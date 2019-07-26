@@ -1,6 +1,6 @@
 open AeInclude
 
-let cryptol_header phases =
+let cryptol_header phases ~bitlength =
   let has phase = List.exists ~f:(fun phase' -> phase' = phase) phases in
   let text = {|
 foldl : {a, b, m} (fin m) => (a -> b -> a) -> a -> [m]b -> a
@@ -8,7 +8,7 @@ foldl f acc xs = ys ! 0 where ys = [acc] # [f a x | a <- ys | x <- xs]
 
 maximum xs = foldl max 0 xs
 
-type n = 8
+type n = |} :: Int.to_string bitlength :: {|
 
 // 0 -> 0
 // 1 -> 1
@@ -16,7 +16,7 @@ type n = 8
 // 3 -> ⊥
 type Typ = [2]
 
-type Ctr = [5]
+type Ctr = [8]
 
 ctr : [n] -> Ctr
 ctr = undefined
