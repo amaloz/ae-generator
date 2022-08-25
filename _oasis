@@ -13,7 +13,7 @@ Description:
 AlphaFeatures: ocamlbuild_more_args
 XOCamlbuildExtraArgs:
 
-BuildDepends: core,
+BuildDepends: core_unix,
               cryptokit,
               dolog,
               ocamlgraph,

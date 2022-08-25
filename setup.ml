@@ -6895,6 +6895,9 @@ let setup_t =
                       bs_build_depends =
                         [
                            FindlibPackage ("core", None);
+                           FindlibPackage ("core_unix.command_unix", None);
+                           FindlibPackage ("core_unix.filename_unix", None);
+                           FindlibPackage ("core_unix.sys_unix", None);
                            FindlibPackage ("cryptokit", None);
                            FindlibPackage ("dolog", None);
                            FindlibPackage ("ocamlgraph", None);

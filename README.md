@@ -5,7 +5,7 @@ Authenticated encryption scheme prover/synthesizer.
 
 To use, install the following OCaml packages:
 
-> oasis, core, cryptokit, dolog, ocamlfind (for compilation), ocamlgraph
+> oasis, core_unix, cryptokit, dolog, ocamlfind (for compilation), ocamlgraph
 
 Then run:
 

@@ -37,7 +37,7 @@ let scheme =
       match AeInst.from_string_block s with
       | Ok block -> block
       | Error err ->
-        let _ = eprintf "%s" (Error.to_string_hum err) in exit 1)
+        let _ = eprintf "%s" (Info.to_string_hum_deprecated (Base.Error.to_info err)) in exit 1)
 
 let spec_common =
   let open Command.Spec in
@@ -64,9 +64,9 @@ let spec_check =
     ~doc:" Display given mode as a graph (needs 'gvpack', 'dot', and 'feh')"
   +> flag "-eval" no_arg
     ~doc:" Evaluate the given mode"
-  +> flag "-dec-file" (optional file)
+  +> flag "-dec-file" (optional string)
     ~doc:"FILE Run against modes (given as decode algorithms) in FILE"
-  +> flag "-enc-file" (optional file)
+  +> flag "-enc-file" (optional string)
     ~doc:"FILE Run against modes (given as encode algorithms) in FILE"
   +> flag "-parallel" no_arg
     ~doc:" Check if given mode is (weakly) parallelizable"
@@ -228,7 +228,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
         found := block :: !found;
         count + 1
       | Error err ->
-        eprintf "%s: %s\n%!" (AeModes.to_string mode) (Error.to_string_hum err);
+        eprintf "%s: %s\n%!" (AeModes.to_string mode) (Info.to_string_hum_deprecated (Base.Error.to_info err));
         count
     in
     let secure = List.fold ~init:0 blocks ~f in
@@ -258,7 +258,7 @@ let run_check mode encode decode tag check display eval dec_file enc_file
   in
   match run () with
   | Ok _ -> ()
-  | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err)
+  | Error err -> eprintf "Error: %s\n%!" (Info.to_string_hum_deprecated (Base.Error.to_info err))
 
 let spec_synth =
   let size = 12 in
@@ -291,7 +291,7 @@ let run_synth encode decode size print attack simple debug () =
   in
   match run () with
   | Ok _ -> ()
-  | Error err -> eprintf "Error: %s\n%!" (Error.to_string_hum err)
+  | Error err -> eprintf "Error: %s\n%!" (Info.to_string_hum_deprecated (Base.Error.to_info err))
 
 let check =
   Command.basic_spec
@@ -321,5 +321,5 @@ let command =
 
 let _ =
   Exn.handle_uncaught ~exit:true (fun () ->
-      Command.run ~version:version command
+      Command_unix.run ~version:version command
     )
